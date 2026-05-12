@@ -1,0 +1,14 @@
+node_modules/
+dist/
+build/
+coverage/
+.DS_Store
+Thumbs.db
+*.log
+*.tsbuildinfo
+.expo/
+.expo-shared/
+.idea/
+.vscode/
+.env*
+!.env.example
