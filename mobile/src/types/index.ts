@@ -42,6 +42,7 @@ export type RootStackParamList = {
   OTP: { email: string };
   ForgotPassword: undefined;
   ResetPassword: { email: string };
+  NewChat: undefined;
   ChatRoom: { roomId: string; roomName: string };
 };
 

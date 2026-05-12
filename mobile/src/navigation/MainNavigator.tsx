@@ -4,6 +4,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { View, Text } from 'react-native';
 import ChatsScreen from '../screens/chat/ChatsScreen';
 import ChatRoomScreen from '../screens/chat/ChatRoomScreen';
+import NewChatScreen from '../screens/chat/NewChatScreen';
 import SettingsScreen from '../screens/settings/SettingsScreen';
 import { MainTabParamList, RootStackParamList } from '../types';
 
@@ -80,6 +81,11 @@ export default function MainNavigator() {
         name="ChatRoom"
         component={ChatRoomScreen}
         options={{ animation: 'slide_from_right' }}
+      />
+      <Stack.Screen
+        name="NewChat"
+        component={NewChatScreen}
+        options={{ animation: 'slide_from_bottom' }}
       />
     </Stack.Navigator>
   );

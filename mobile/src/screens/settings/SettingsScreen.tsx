@@ -3,7 +3,8 @@ import { View, Text, TouchableOpacity, Alert } from 'react-native';
 import { useAuthStore } from '../../store/useAuthStore';
 
 export default function SettingsScreen() {
-  const { user, logout } = useAuthStore();
+  const user = useAuthStore((s) => s.user);
+  const logout = useAuthStore((s) => s.logout);
 
   const handleLogout = () => {
     Alert.alert('Logout', 'Are you sure you want to logout?', [

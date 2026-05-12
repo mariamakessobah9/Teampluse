@@ -16,6 +16,8 @@ import { Message, RootStackParamList } from '../../types';
 
 type ChatRoomRoute = RouteProp<RootStackParamList, 'ChatRoom'>;
 
+const EMPTY_MESSAGES: Message[] = [];
+
 export default function ChatRoomScreen() {
   const route = useRoute<ChatRoomRoute>();
   const nav = useNavigation();
@@ -23,17 +25,20 @@ export default function ChatRoomScreen() {
   const [text, setText] = useState('');
   const flatListRef = useRef<FlatList>(null);
 
-  const messages = useChatStore((s) => s.messages[roomId] || []);
+  const messages = useChatStore((s) => s.messages[roomId] ?? EMPTY_MESSAGES);
   const fetchMessages = useChatStore((s) => s.fetchMessages);
+  const setActiveRoom = useChatStore((s) => s.setActiveRoom);
   const currentUser = useAuthStore((s) => s.user);
   const { joinRoom, leaveRoom, sendMessage, markAsRead } = useSocket();
 
   useEffect(() => {
+    setActiveRoom(roomId);
     joinRoom(roomId);
     fetchMessages(roomId);
     markAsRead(roomId);
 
     return () => {
+      setActiveRoom(null);
       leaveRoom(roomId);
     };
   }, [roomId]);

@@ -1,47 +1,6 @@
-import { useEffect, useRef } from 'react';
-import { Socket } from 'socket.io-client';
-import { connectSocket, disconnectSocket, getSocket } from '../services/socket';
-import { useChatStore } from '../store/useChatStore';
-import { Message } from '../types';
+import { getSocket } from '../services/socket';
 
 export function useSocket() {
-  const socketRef = useRef<Socket | null>(null);
-  const addMessage = useChatStore((s) => s.addMessage);
-
-  useEffect(() => {
-    const init = async () => {
-      const socket = await connectSocket();
-      socketRef.current = socket;
-
-      socket.on('new-message', (message: Message) => {
-        addMessage(message.chatRoomId, message);
-      });
-
-      socket.on('message-delivered', ({ messageId, roomId }) => {
-        useChatStore
-          .getState()
-          .updateMessageStatus(messageId, roomId, 'delivered');
-      });
-
-      socket.on('messages-read', ({ roomId, userId }) => {
-        const messages = useChatStore.getState().messages[roomId] || [];
-        messages.forEach((msg) => {
-          if (msg.senderId !== userId && msg.status !== 'read') {
-            useChatStore
-              .getState()
-              .updateMessageStatus(msg.id, roomId, 'read');
-          }
-        });
-      });
-    };
-
-    init();
-
-    return () => {
-      disconnectSocket();
-    };
-  }, []);
-
   const joinRoom = (roomId: string) => {
     getSocket()?.emit('join-room', { roomId });
   };

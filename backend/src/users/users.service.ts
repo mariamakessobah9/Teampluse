@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { ILike, Not, Repository } from 'typeorm';
 import { User } from './user.entity';
 
 @Injectable()
@@ -36,5 +36,21 @@ export class UsersService {
 
   async remove(id: string): Promise<void> {
     await this.usersRepo.delete(id);
+  }
+
+  async search(query: string, excludeId: string): Promise<Partial<User>[]> {
+    const q = query?.trim();
+    if (!q || q.length < 2) return [];
+    const pattern = `%${q}%`;
+    const users = await this.usersRepo.find({
+      where: [
+        { id: Not(excludeId), isVerified: true, name: ILike(pattern) },
+        { id: Not(excludeId), isVerified: true, email: ILike(pattern) },
+      ],
+      select: ['id', 'name', 'email', 'avatar', 'isOnline'],
+      take: 20,
+      order: { name: 'ASC' },
+    });
+    return users;
   }
 }

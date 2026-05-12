@@ -1,4 +1,4 @@
-import { Controller, Get, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -13,6 +13,14 @@ export class UsersController {
     const user = await this.usersService.findById(current.id);
     const { password, otp, otpExpiresAt, ...result } = user;
     return result;
+  }
+
+  @Get('search')
+  async search(
+    @CurrentUser('id') currentId: string,
+    @Query('q') q: string,
+  ) {
+    return this.usersService.search(q, currentId);
   }
 
   @Get('profile/:id')

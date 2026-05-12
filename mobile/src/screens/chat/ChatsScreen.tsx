@@ -106,8 +106,14 @@ export default function ChatsScreen() {
 
   return (
     <View className="flex-1 bg-dark-200">
-      <View className="px-4 pt-14 pb-4">
+      <View className="px-4 pt-14 pb-4 flex-row justify-between items-center">
         <Text className="text-white text-2xl font-bold">Chats</Text>
+        <TouchableOpacity
+          className="bg-primary-600 w-10 h-10 rounded-full items-center justify-center"
+          onPress={() => nav.navigate('NewChat')}
+        >
+          <Text className="text-white text-2xl leading-7">+</Text>
+        </TouchableOpacity>
       </View>
 
       <FlatList
@@ -115,8 +121,10 @@ export default function ChatsScreen() {
         keyExtractor={(item) => item.id}
         renderItem={renderRoom}
         ListEmptyComponent={
-          <View className="flex-1 items-center justify-center pt-20">
-            <Text className="text-slate-500 text-base">No conversations yet</Text>
+          <View className="flex-1 items-center justify-center pt-20 px-8">
+            <Text className="text-slate-500 text-base text-center">
+              No conversations yet.{'\n'}Tap the + button to start one.
+            </Text>
           </View>
         }
       />

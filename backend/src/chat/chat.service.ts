@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In } from 'typeorm';
+import { Repository, In, Not } from 'typeorm';
 import { ChatRoom } from './entities/chat-room.entity';
 import { Message } from './entities/message.entity';
 import { UsersService } from '../users/users.service';
@@ -16,19 +16,19 @@ export class ChatService {
   ) {}
 
   async createDirectRoom(userId1: string, userId2: string): Promise<ChatRoom> {
-    // Check if direct room already exists between these users
-    const existing = await this.roomsRepo
+    const candidates = await this.roomsRepo
       .createQueryBuilder('room')
-      .innerJoin('room.members', 'member')
+      .innerJoin('room.members', 'member', 'member.id = :userId1', { userId1 })
+      .leftJoinAndSelect('room.members', 'allMembers')
       .where('room.type = :type', { type: 'direct' })
-      .groupBy('room.id')
-      .having('COUNT(CASE WHEN member.id IN (:...ids) THEN 1 END) = 2', {
-        ids: [userId1, userId2],
-      })
-      .having('COUNT(member.id) = 2')
-      .getOne();
+      .getMany();
 
-    if (existing) return this.getRoomById(existing.id);
+    const existing = candidates.find(
+      (r) =>
+        r.members.length === 2 && r.members.some((m) => m.id === userId2),
+    );
+
+    if (existing) return existing;
 
     const user1 = await this.usersService.findById(userId1);
     const user2 = await this.usersService.findById(userId2);
@@ -78,7 +78,6 @@ export class ChatService {
       .orderBy('room.updatedAt', 'DESC')
       .getMany();
 
-    // Attach last message to each room
     const result = await Promise.all(
       rooms.map(async (room) => {
         const lastMessage = await this.messagesRepo.findOne({
@@ -90,6 +89,7 @@ export class ChatService {
         const unreadCount = await this.messagesRepo.count({
           where: {
             chatRoomId: room.id,
+            senderId: Not(userId),
             status: In(['sent', 'delivered']),
           },
         });
