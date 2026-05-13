@@ -6,9 +6,12 @@ import {
   FlatList,
   TouchableOpacity,
   ActivityIndicator,
+  Image,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { Ionicons } from '@expo/vector-icons';
+import { useColorScheme } from 'nativewind';
 import api from '../../services/api';
 import { useChatStore } from '../../store/useChatStore';
 import { RootStackParamList, User } from '../../types';
@@ -22,6 +25,9 @@ export default function NewChatScreen() {
   const [loading, setLoading] = useState(false);
   const [starting, setStarting] = useState<string | null>(null);
   const createDirectRoom = useChatStore((s) => s.createDirectRoom);
+  const { colorScheme } = useColorScheme();
+  const isDark = colorScheme === 'dark';
+  const headerAccent = isDark ? '#86efac' : '#15803d';
 
   useEffect(() => {
     const q = query.trim();
@@ -54,63 +60,92 @@ export default function NewChatScreen() {
   };
 
   return (
-    <View className="flex-1 bg-dark-200">
-      <View className="flex-row items-center px-4 pt-14 pb-3 bg-dark-300 border-b border-dark-100">
-        <TouchableOpacity onPress={() => nav.goBack()} className="mr-3">
-          <Text className="text-primary-500 text-2xl">←</Text>
+    <View className="flex-1 bg-surface-page dark:bg-dark-200">
+      {/* Header */}
+      <View className="bg-surface-header dark:bg-dark-300 pt-14 pb-3 px-4 flex-row items-center">
+        <TouchableOpacity onPress={() => nav.goBack()} className="mr-2">
+          <Ionicons name="chevron-back" size={26} color={headerAccent} />
         </TouchableOpacity>
-        <Text className="text-white font-semibold text-lg">New chat</Text>
+        <Text className="text-ink-900 dark:text-white font-bold text-lg">
+          New chat
+        </Text>
       </View>
 
+      {/* Search */}
       <View className="px-4 py-3">
-        <TextInput
-          className="bg-dark-100 text-white rounded-xl px-4 py-3 text-base"
-          placeholder="Search by name or email"
-          placeholderTextColor="#64748b"
-          value={query}
-          onChangeText={setQuery}
-          autoCapitalize="none"
-          autoFocus
-        />
+        <View className="flex-row items-center bg-surface-card dark:bg-dark-100 rounded-2xl px-4 py-3">
+          <Ionicons name="search" size={18} color={isDark ? '#64748b' : '#9ca3af'} />
+          <TextInput
+            className="flex-1 text-ink-900 dark:text-white text-base ml-2"
+            placeholder="Search by name or email"
+            placeholderTextColor={isDark ? '#64748b' : '#9ca3af'}
+            value={query}
+            onChangeText={setQuery}
+            autoCapitalize="none"
+            autoFocus
+          />
+        </View>
       </View>
 
       {loading ? (
         <View className="items-center mt-6">
-          <ActivityIndicator color="#22c55e" />
+          <ActivityIndicator color="#16a34a" />
         </View>
       ) : (
         <FlatList
           data={results}
           keyExtractor={(u) => u.id}
+          ItemSeparatorComponent={() => (
+            <View className="h-px bg-ink-200/40 dark:bg-slate-700/50 mx-4" />
+          )}
           renderItem={({ item }) => (
             <TouchableOpacity
-              className="flex-row items-center px-4 py-3 border-b border-dark-100"
+              className="flex-row items-center px-4 py-3"
+              activeOpacity={0.7}
               onPress={() => handleStart(item)}
               disabled={starting === item.id}
             >
-              <View className="w-12 h-12 rounded-full bg-primary-800 items-center justify-center mr-3">
-                <Text className="text-white text-lg font-bold">
-                  {item.name.charAt(0).toUpperCase()}
-                </Text>
+              <View className="relative mr-3">
+                <View className="w-12 h-12 rounded-2xl bg-primary-100 dark:bg-primary-900 items-center justify-center overflow-hidden">
+                  {item.avatar ? (
+                    <Image
+                      source={{ uri: item.avatar }}
+                      className="w-12 h-12"
+                    />
+                  ) : (
+                    <Text className="text-primary-700 dark:text-primary-300 text-lg font-bold">
+                      {item.name.charAt(0).toUpperCase()}
+                    </Text>
+                  )}
+                </View>
+                <View
+                  className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-surface-page dark:border-dark-200 ${
+                    item.isOnline ? 'bg-primary-500' : 'bg-ink-300 dark:bg-slate-600'
+                  }`}
+                />
               </View>
               <View className="flex-1">
-                <Text className="text-white font-semibold text-base">{item.name}</Text>
-                <Text className="text-slate-400 text-sm">{item.email}</Text>
+                <Text className="text-ink-900 dark:text-white font-semibold text-base">
+                  {item.name}
+                </Text>
+                <Text className="text-ink-400 dark:text-slate-400 text-sm">
+                  {item.email}
+                </Text>
               </View>
-              {starting === item.id ? (
-                <ActivityIndicator color="#22c55e" />
-              ) : item.isOnline ? (
-                <View className="w-2.5 h-2.5 rounded-full bg-green-500" />
-              ) : null}
+              {starting === item.id && (
+                <ActivityIndicator color="#16a34a" />
+              )}
             </TouchableOpacity>
           )}
           ListEmptyComponent={
             query.trim().length < 2 ? (
-              <Text className="text-slate-500 text-center mt-8">
+              <Text className="text-ink-400 dark:text-slate-400 text-center mt-8">
                 Type at least 2 characters to search
               </Text>
             ) : (
-              <Text className="text-slate-500 text-center mt-8">No users found</Text>
+              <Text className="text-ink-400 dark:text-slate-400 text-center mt-8">
+                No users found
+              </Text>
             )
           }
         />

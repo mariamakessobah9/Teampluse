@@ -7,6 +7,7 @@ interface ChatState {
   rooms: ChatRoom[];
   activeRoomId: string | null;
   messages: Record<string, Message[]>;
+  typingByRoom: Record<string, Record<string, true>>;
 
   fetchRooms: () => Promise<void>;
   setActiveRoom: (roomId: string | null) => void;
@@ -17,6 +18,7 @@ interface ChatState {
   updateMessageStatus: (messageId: string, roomId: string, status: string) => void;
   markRoomMessagesRead: (roomId: string, readerUserId: string) => void;
   setUserOnline: (userId: string, isOnline: boolean) => void;
+  setTyping: (roomId: string, userId: string, isTyping: boolean) => void;
 
   createDirectRoom: (targetUserId: string) => Promise<ChatRoom>;
   createGroupRoom: (name: string, memberIds: string[]) => Promise<ChatRoom>;
@@ -35,6 +37,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   rooms: [],
   activeRoomId: null,
   messages: {},
+  typingByRoom: {},
 
   fetchRooms: async () => {
     const { data } = await api.get('/chat/rooms');
@@ -155,6 +158,28 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }));
   },
 
+  setTyping: (roomId, userId, isTyping) => {
+    set((state) => {
+      const room = state.typingByRoom[roomId];
+      if (isTyping) {
+        if (room && room[userId]) return state;
+        return {
+          typingByRoom: {
+            ...state.typingByRoom,
+            [roomId]: { ...(room || {}), [userId]: true },
+          },
+        };
+      }
+      if (!room || !room[userId]) return state;
+      const { [userId]: _removed, ...rest } = room;
+      const nextRoom = Object.keys(rest).length > 0 ? rest : undefined;
+      const next = { ...state.typingByRoom };
+      if (nextRoom) next[roomId] = nextRoom;
+      else delete next[roomId];
+      return { typingByRoom: next };
+    });
+  },
+
   createDirectRoom: async (targetUserId) => {
     const { data } = await api.post('/chat/rooms/direct', { targetUserId });
     set((state) => {
@@ -173,5 +198,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
     return data;
   },
 
-  reset: () => set({ rooms: [], activeRoomId: null, messages: {} }),
+  reset: () =>
+    set({ rooms: [], activeRoomId: null, messages: {}, typingByRoom: {} }),
 }));

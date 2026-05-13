@@ -1,10 +1,35 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, Alert } from 'react-native';
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  Alert,
+  ScrollView,
+  Image,
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useColorScheme } from 'nativewind';
 import { useAuthStore } from '../../store/useAuthStore';
+import { useThemeStore } from '../../store/useThemeStore';
+
+const MENU_ITEMS = [
+  { label: 'Notifications', icon: 'notifications-outline' as const },
+  { label: 'Privacy & Security', icon: 'lock-closed-outline' as const },
+  { label: 'Storage & Data', icon: 'server-outline' as const },
+  { label: 'Help & Support', icon: 'help-circle-outline' as const },
+];
 
 export default function SettingsScreen() {
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
+  const theme = useThemeStore((s) => s.theme);
+  const setTheme = useThemeStore((s) => s.setTheme);
+  const { colorScheme } = useColorScheme();
+  const isDark = colorScheme === 'dark';
+
+  const iconColor = isDark ? '#e5e7eb' : '#1f2937';
+  const headerAccent = isDark ? '#86efac' : '#15803d';
+  const mutedIcon = isDark ? '#94a3b8' : '#4b5563';
 
   const handleLogout = () => {
     Alert.alert('Logout', 'Are you sure you want to logout?', [
@@ -13,47 +38,193 @@ export default function SettingsScreen() {
     ]);
   };
 
-  return (
-    <View className="flex-1 bg-dark-200">
-      <View className="px-4 pt-14 pb-4">
-        <Text className="text-white text-2xl font-bold">Settings</Text>
-      </View>
+  const initials = (user?.name || 'U')
+    .split(' ')
+    .map((p) => p.charAt(0).toUpperCase())
+    .slice(0, 2)
+    .join('');
 
-      {/* Profile Card */}
-      <View className="mx-4 bg-dark-100 rounded-2xl p-4 mb-6">
-        <View className="w-16 h-16 rounded-full bg-primary-800 items-center justify-center mb-3">
-          <Text className="text-white text-2xl font-bold">
-            {user?.name?.charAt(0).toUpperCase() || '?'}
+  return (
+    <View className="flex-1 bg-surface-page dark:bg-dark-200">
+      {/* Top header */}
+      <View className="bg-surface-header dark:bg-dark-300 pt-14 pb-3 px-4 flex-row items-center justify-between">
+        <View className="flex-row items-center">
+          <View className="w-8 h-8 rounded-full bg-primary-500 items-center justify-center mr-3">
+            <Text className="text-white text-xs font-bold">{initials}</Text>
+          </View>
+          <Text className="text-primary-700 dark:text-primary-300 text-xl font-bold">
+            TeamPulse
           </Text>
         </View>
-        <Text className="text-white text-xl font-bold">{user?.name}</Text>
-        <Text className="text-slate-400 text-sm mt-1">{user?.email}</Text>
+        <TouchableOpacity>
+          <Ionicons name="search" size={22} color={headerAccent} />
+        </TouchableOpacity>
       </View>
 
-      {/* Menu Items */}
-      <View className="mx-4 bg-dark-100 rounded-2xl overflow-hidden mb-6">
-        {['Notifications', 'Privacy & Security', 'Storage & Data', 'Help & Support'].map(
-          (item, i) => (
-            <TouchableOpacity
-              key={item}
-              className={`flex-row items-center justify-between px-4 py-4 ${
-                i > 0 ? 'border-t border-dark-200' : ''
+      <ScrollView contentContainerStyle={{ paddingBottom: 96 }}>
+        {/* Profile */}
+        <View className="items-center mt-6 mb-4">
+          <View className="relative">
+            <View className="w-28 h-28 rounded-full border-[3px] border-primary-500 items-center justify-center bg-primary-100 dark:bg-primary-900 overflow-hidden">
+              {user?.avatar ? (
+                <Image
+                  source={{ uri: user.avatar }}
+                  className="w-28 h-28 rounded-full"
+                />
+              ) : (
+                <Text className="text-primary-700 dark:text-primary-300 text-3xl font-bold">
+                  {initials}
+                </Text>
+              )}
+            </View>
+            <View className="absolute bottom-1 right-1 w-7 h-7 rounded-full bg-primary-600 items-center justify-center border-2 border-surface-page dark:border-dark-200">
+              <Ionicons name="checkmark" size={16} color="#ffffff" />
+            </View>
+          </View>
+          <Text className="text-ink-900 dark:text-white text-2xl font-bold mt-4">
+            {user?.name || 'Unknown'}
+          </Text>
+          <Text className="text-ink-400 dark:text-slate-400 text-sm mt-1">
+            {user?.role
+              ? user.role.charAt(0).toUpperCase() + user.role.slice(1)
+              : 'Member'}
+          </Text>
+        </View>
+
+        {/* Contact info card */}
+        <View className="mx-4 bg-surface-card dark:bg-dark-100 rounded-2xl p-4 mb-4">
+          <View className="flex-row items-center">
+            <View className="w-10 h-10 rounded-full bg-surface-chip dark:bg-dark-200 items-center justify-center mr-3">
+              <Ionicons name="mail" size={18} color={mutedIcon} />
+            </View>
+            <View className="flex-1">
+              <Text className="text-ink-400 dark:text-slate-400 text-xs font-semibold tracking-wider">
+                EMAIL ADDRESS
+              </Text>
+              <Text className="text-ink-900 dark:text-white text-base font-semibold mt-0.5">
+                {user?.email || '—'}
+              </Text>
+            </View>
+          </View>
+          <View className="h-px bg-ink-200/40 dark:bg-slate-700/50 my-3" />
+          <View className="flex-row items-center">
+            <View className="w-10 h-10 rounded-full bg-surface-chip dark:bg-dark-200 items-center justify-center mr-3">
+              <Ionicons name="call" size={18} color={mutedIcon} />
+            </View>
+            <View className="flex-1">
+              <Text className="text-ink-400 dark:text-slate-400 text-xs font-semibold tracking-wider">
+                PHONE NUMBER
+              </Text>
+              <Text className="text-ink-900 dark:text-white text-base font-semibold mt-0.5">
+                Not set
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Action buttons */}
+        <View className="flex-row mx-4 mb-6">
+          <TouchableOpacity
+            activeOpacity={0.85}
+            className="flex-1 bg-primary-600 rounded-2xl py-3 mr-2 flex-row items-center justify-center"
+          >
+            <Ionicons name="create-outline" size={18} color="#ffffff" />
+            <Text className="text-white font-semibold ml-2">Edit Profile</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            activeOpacity={0.85}
+            className="flex-1 bg-primary-100 dark:bg-primary-900 rounded-2xl py-3 ml-2 flex-row items-center justify-center"
+          >
+            <Ionicons name="share-social-outline" size={18} color={headerAccent} />
+            <Text className="text-primary-700 dark:text-primary-300 font-semibold ml-2">
+              Share Profile
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Appearance */}
+        <Text className="text-ink-400 dark:text-slate-400 text-xs font-bold tracking-wider mx-6 mb-2">
+          APPEARANCE
+        </Text>
+        <View className="mx-4 bg-surface-card dark:bg-dark-100 rounded-2xl p-2 mb-4 flex-row">
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onPress={() => setTheme('light')}
+            className={`flex-1 flex-row items-center justify-center py-2.5 rounded-xl ${
+              theme === 'light' ? 'bg-primary-600' : ''
+            }`}
+          >
+            <Ionicons
+              name="sunny-outline"
+              size={18}
+              color={theme === 'light' ? '#ffffff' : mutedIcon}
+            />
+            <Text
+              className={`font-semibold ml-2 ${
+                theme === 'light'
+                  ? 'text-white'
+                  : 'text-ink-700 dark:text-slate-200'
               }`}
             >
-              <Text className="text-white text-base">{item}</Text>
-              <Text className="text-slate-500">→</Text>
-            </TouchableOpacity>
-          ),
-        )}
-      </View>
+              Light
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onPress={() => setTheme('dark')}
+            className={`flex-1 flex-row items-center justify-center py-2.5 rounded-xl ${
+              theme === 'dark' ? 'bg-primary-600' : ''
+            }`}
+          >
+            <Ionicons
+              name="moon-outline"
+              size={18}
+              color={theme === 'dark' ? '#ffffff' : mutedIcon}
+            />
+            <Text
+              className={`font-semibold ml-2 ${
+                theme === 'dark'
+                  ? 'text-white'
+                  : 'text-ink-700 dark:text-slate-200'
+              }`}
+            >
+              Dark
+            </Text>
+          </TouchableOpacity>
+        </View>
 
-      {/* Logout */}
-      <TouchableOpacity
-        className="mx-4 bg-red-900/30 rounded-2xl py-4 items-center"
-        onPress={handleLogout}
-      >
-        <Text className="text-red-400 font-semibold text-base">Logout</Text>
-      </TouchableOpacity>
+        {/* Account settings */}
+        <Text className="text-ink-400 dark:text-slate-400 text-xs font-bold tracking-wider mx-6 mb-2">
+          ACCOUNT SETTINGS
+        </Text>
+        <View className="mx-4 bg-surface-card dark:bg-dark-100 rounded-2xl overflow-hidden mb-4">
+          {MENU_ITEMS.map((item, i) => (
+            <TouchableOpacity
+              key={item.label}
+              activeOpacity={0.7}
+              className={`flex-row items-center px-4 py-4 ${
+                i > 0 ? 'border-t border-ink-200/40 dark:border-slate-700/50' : ''
+              }`}
+            >
+              <Ionicons name={item.icon} size={20} color={iconColor} />
+              <Text className="text-ink-900 dark:text-white text-base font-medium flex-1 ml-3">
+                {item.label}
+              </Text>
+              <Ionicons name="chevron-forward" size={18} color="#9ca3af" />
+            </TouchableOpacity>
+          ))}
+          <TouchableOpacity
+            activeOpacity={0.7}
+            onPress={handleLogout}
+            className="flex-row items-center px-4 py-4 border-t border-ink-200/40 dark:border-slate-700/50"
+          >
+            <Ionicons name="log-out-outline" size={20} color="#dc2626" />
+            <Text className="text-red-600 dark:text-red-400 text-base font-semibold ml-3">
+              Logout
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
     </View>
   );
 }
