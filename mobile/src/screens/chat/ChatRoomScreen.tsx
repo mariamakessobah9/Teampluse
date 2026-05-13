@@ -10,6 +10,7 @@ import {
   Platform,
 } from 'react-native';
 import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from 'nativewind';
 import { useChatStore } from '../../store/useChatStore';
@@ -18,6 +19,7 @@ import { useSocket } from '../../hooks/useSocket';
 import { Message, RootStackParamList } from '../../types';
 
 type ChatRoomRoute = RouteProp<RootStackParamList, 'ChatRoom'>;
+type Nav = NativeStackNavigationProp<RootStackParamList>;
 
 const EMPTY_MESSAGES: Message[] = [];
 const TYPING_DEBOUNCE_MS = 2000;
@@ -30,7 +32,7 @@ const formatTime = (dateStr: string) =>
 
 export default function ChatRoomScreen() {
   const route = useRoute<ChatRoomRoute>();
-  const nav = useNavigation();
+  const nav = useNavigation<Nav>();
   const { roomId, roomName } = route.params;
   const [text, setText] = useState('');
   const flatListRef = useRef<FlatList>(null);
@@ -48,6 +50,8 @@ export default function ChatRoomScreen() {
   const isDark = colorScheme === 'dark';
   const headerAccent = isDark ? '#86efac' : '#15803d';
   const mutedIcon = isDark ? '#94a3b8' : '#4b5563';
+
+  const isGroup = room?.type === 'group';
 
   const otherMember = useMemo(() => {
     if (!room || room.type !== 'direct') return null;
@@ -164,6 +168,11 @@ export default function ChatRoomScreen() {
               : 'bg-surface-bubbleIn dark:bg-dark-100 rounded-bl-md'
           }`}
         >
+          {!isMe && isGroup && showAvatar && (
+            <Text className="text-primary-700 dark:text-primary-300 text-xs font-bold mb-0.5">
+              {item.sender?.name || 'Unknown'}
+            </Text>
+          )}
           <Text
             className={`text-base ${
               isMe ? 'text-white' : 'text-ink-900 dark:text-white'
@@ -200,6 +209,16 @@ export default function ChatRoomScreen() {
       : 'Offline'
     : null;
 
+  const groupSubtitle = isGroup && room
+    ? `${room.members.length} member${room.members.length > 1 ? 's' : ''}`
+    : null;
+
+  const openSettings = () => {
+    if (isGroup) {
+      nav.navigate('GroupSettings', { roomId });
+    }
+  };
+
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -211,47 +230,60 @@ export default function ChatRoomScreen() {
           <Ionicons name="chevron-back" size={26} color={headerAccent} />
         </TouchableOpacity>
 
-        <View className="relative mr-3">
-          <View className="w-10 h-10 rounded-full border-2 border-primary-500 items-center justify-center overflow-hidden bg-primary-100 dark:bg-primary-900">
-            {otherMember?.avatar ? (
-              <Image
-                source={{ uri: otherMember.avatar }}
-                className="w-10 h-10 rounded-full"
-              />
-            ) : (
-              <Text className="text-primary-700 dark:text-primary-200 font-bold">
-                {(roomName || '?').charAt(0).toUpperCase()}
-              </Text>
+        <TouchableOpacity
+          onPress={openSettings}
+          disabled={!isGroup}
+          activeOpacity={isGroup ? 0.7 : 1}
+          className="flex-row items-center flex-1"
+        >
+          <View className="relative mr-3">
+            <View className="w-10 h-10 rounded-full border-2 border-primary-500 items-center justify-center overflow-hidden bg-primary-100 dark:bg-primary-900">
+              {(isGroup ? room?.avatar : otherMember?.avatar) ? (
+                <Image
+                  source={{
+                    uri: (isGroup ? room?.avatar : otherMember?.avatar) as string,
+                  }}
+                  className="w-10 h-10 rounded-full"
+                />
+              ) : (
+                <Text className="text-primary-700 dark:text-primary-200 font-bold">
+                  {(roomName || '?').charAt(0).toUpperCase()}
+                </Text>
+              )}
+            </View>
+            {!isGroup && otherMember?.isOnline && (
+              <View className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-primary-500 border-2 border-surface-header dark:border-dark-300" />
             )}
           </View>
-          {otherMember?.isOnline && (
-            <View className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-primary-500 border-2 border-surface-header dark:border-dark-300" />
-          )}
-        </View>
 
-        <View className="flex-1">
-          <Text
-            className="text-ink-900 dark:text-white font-bold text-base"
-            numberOfLines={1}
-          >
-            {roomName}
-          </Text>
-          {typingLabel ? (
-            <Text className="text-primary-600 dark:text-primary-300 text-xs italic">
-              {typingLabel}
-            </Text>
-          ) : presenceLabel ? (
+          <View className="flex-1">
             <Text
-              className={`text-xs ${
-                otherMember?.isOnline
-                  ? 'text-primary-600 dark:text-primary-300'
-                  : 'text-ink-400 dark:text-slate-400'
-              }`}
+              className="text-ink-900 dark:text-white font-bold text-base"
+              numberOfLines={1}
             >
-              {presenceLabel}
+              {roomName}
             </Text>
-          ) : null}
-        </View>
+            {typingLabel ? (
+              <Text className="text-primary-600 dark:text-primary-300 text-xs italic">
+                {typingLabel}
+              </Text>
+            ) : groupSubtitle ? (
+              <Text className="text-ink-400 dark:text-slate-400 text-xs">
+                {groupSubtitle}
+              </Text>
+            ) : presenceLabel ? (
+              <Text
+                className={`text-xs ${
+                  otherMember?.isOnline
+                    ? 'text-primary-600 dark:text-primary-300'
+                    : 'text-ink-400 dark:text-slate-400'
+                }`}
+              >
+                {presenceLabel}
+              </Text>
+            ) : null}
+          </View>
+        </TouchableOpacity>
 
         <TouchableOpacity className="ml-3">
           <Ionicons name="call-outline" size={22} color={headerAccent} />

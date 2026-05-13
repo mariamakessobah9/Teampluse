@@ -11,6 +11,9 @@ import { Server, Socket } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
 import { ChatService } from './chat.service';
 import { UsersService } from '../users/users.service';
+import { ChatRoom } from './entities/chat-room.entity';
+
+const userRoomKey = (userId: string) => `user:${userId}`;
 
 @WebSocketGateway({
   cors: { origin: '*' },
@@ -43,6 +46,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const userId = payload.sub;
 
       this.connectedUsers.set(client.id, userId);
+      client.join(userRoomKey(userId));
       await this.usersService.setOnlineStatus(userId, true);
 
       // Notify others that user is online
@@ -151,5 +155,34 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       roomId: data.roomId,
       userId,
     });
+  }
+
+  // ---- Helpers used by REST controllers to broadcast group changes ----
+
+  emitRoomCreated(room: ChatRoom): void {
+    for (const member of room.members ?? []) {
+      this.server.to(userRoomKey(member.id)).emit('room-created', room);
+    }
+  }
+
+  emitRoomUpdated(room: ChatRoom): void {
+    this.server.to(room.id).emit('room-updated', room);
+    for (const member of room.members ?? []) {
+      this.server.to(userRoomKey(member.id)).emit('room-updated', room);
+    }
+  }
+
+  emitRoomDeleted(roomId: string): void {
+    this.server.to(roomId).emit('room-deleted', { roomId });
+  }
+
+  emitMemberRemoved(roomId: string, userId: string, room: ChatRoom): void {
+    this.server
+      .to(userRoomKey(userId))
+      .emit('removed-from-room', { roomId });
+    this.server.to(roomId).emit('room-updated', room);
+    for (const member of room.members ?? []) {
+      this.server.to(userRoomKey(member.id)).emit('room-updated', room);
+    }
   }
 }

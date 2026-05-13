@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { connectSocket, disconnectSocket } from '../services/socket';
 import { useAuthStore } from '../store/useAuthStore';
 import { useChatStore } from '../store/useChatStore';
-import { Message } from '../types';
+import { ChatRoom, Message } from '../types';
 
 const TYPING_AUTO_CLEAR_MS = 5000;
 const typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -78,6 +78,22 @@ export function useGlobalSocket() {
           }
         },
       );
+
+      socket.on('room-created', (room: ChatRoom) => {
+        useChatStore.getState().upsertRoom(room);
+      });
+
+      socket.on('room-updated', (room: ChatRoom) => {
+        useChatStore.getState().upsertRoom(room);
+      });
+
+      socket.on('room-deleted', ({ roomId }: { roomId: string }) => {
+        useChatStore.getState().removeRoom(roomId);
+      });
+
+      socket.on('removed-from-room', ({ roomId }: { roomId: string }) => {
+        useChatStore.getState().removeRoom(roomId);
+      });
     })();
 
     return () => {

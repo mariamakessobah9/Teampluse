@@ -43,7 +43,9 @@ export type RootStackParamList = {
   ForgotPassword: undefined;
   ResetPassword: { email: string };
   NewChat: undefined;
+  NewGroup: undefined;
   ChatRoom: { roomId: string; roomName: string };
+  GroupSettings: { roomId: string };
 };
 
 export type MainTabParamList = {

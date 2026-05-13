@@ -23,15 +23,46 @@ interface ChatState {
   createDirectRoom: (targetUserId: string) => Promise<ChatRoom>;
   createGroupRoom: (name: string, memberIds: string[]) => Promise<ChatRoom>;
 
+  updateGroup: (
+    roomId: string,
+    payload: { name?: string; avatar?: string | null },
+  ) => Promise<ChatRoom>;
+  addGroupMembers: (roomId: string, memberIds: string[]) => Promise<ChatRoom>;
+  removeGroupMember: (roomId: string, userId: string) => Promise<ChatRoom>;
+  transferGroupAdmin: (roomId: string, newAdminId: string) => Promise<ChatRoom>;
+  leaveGroup: (roomId: string) => Promise<void>;
+
+  upsertRoom: (room: ChatRoom) => void;
+  removeRoom: (roomId: string) => void;
+
   reset: () => void;
 }
 
+const dedupById = <T extends { id: string }>(items: T[] | undefined): T[] => {
+  if (!items) return [];
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const item of items) {
+    if (!item?.id || seen.has(item.id)) continue;
+    seen.add(item.id);
+    out.push(item);
+  }
+  return out;
+};
+
+const normalizeRoom = (room: ChatRoom): ChatRoom => ({
+  ...room,
+  members: dedupById(room.members),
+});
+
 const sortRoomsByActivity = (rooms: ChatRoom[]): ChatRoom[] =>
-  [...rooms].sort((a, b) => {
-    const aDate = new Date(a.lastMessage?.createdAt || a.updatedAt).getTime();
-    const bDate = new Date(b.lastMessage?.createdAt || b.updatedAt).getTime();
-    return bDate - aDate;
-  });
+  dedupById(rooms)
+    .map(normalizeRoom)
+    .sort((a, b) => {
+      const aDate = new Date(a.lastMessage?.createdAt || a.updatedAt).getTime();
+      const bDate = new Date(b.lastMessage?.createdAt || b.updatedAt).getTime();
+      return bDate - aDate;
+    });
 
 export const useChatStore = create<ChatState>((set, get) => ({
   rooms: [],
@@ -194,8 +225,76 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   createGroupRoom: async (name, memberIds) => {
     const { data } = await api.post('/chat/rooms/group', { name, memberIds });
-    set((state) => ({ rooms: sortRoomsByActivity([data, ...state.rooms]) }));
+    get().upsertRoom(data);
     return data;
+  },
+
+  updateGroup: async (roomId, payload) => {
+    const { data } = await api.patch(`/chat/rooms/${roomId}`, payload);
+    get().upsertRoom(data);
+    return data;
+  },
+
+  addGroupMembers: async (roomId, memberIds) => {
+    const { data } = await api.post(`/chat/rooms/${roomId}/members`, {
+      memberIds,
+    });
+    get().upsertRoom(data);
+    return data;
+  },
+
+  removeGroupMember: async (roomId, userId) => {
+    const { data } = await api.delete(
+      `/chat/rooms/${roomId}/members/${userId}`,
+    );
+    get().upsertRoom(data);
+    return data;
+  },
+
+  transferGroupAdmin: async (roomId, newAdminId) => {
+    const { data } = await api.post(`/chat/rooms/${roomId}/transfer-admin`, {
+      newAdminId,
+    });
+    get().upsertRoom(data);
+    return data;
+  },
+
+  leaveGroup: async (roomId) => {
+    await api.post(`/chat/rooms/${roomId}/leave`);
+    get().removeRoom(roomId);
+  },
+
+  upsertRoom: (room) => {
+    set((state) => {
+      const existing = state.rooms.find((r) => r.id === room.id);
+      const next = existing
+        ? state.rooms.map((r) =>
+            r.id === room.id
+              ? {
+                  ...r,
+                  ...room,
+                  lastMessage: room.lastMessage ?? r.lastMessage,
+                  unreadCount: room.unreadCount ?? r.unreadCount,
+                }
+              : r,
+          )
+        : [room, ...state.rooms];
+      return { rooms: sortRoomsByActivity(next) };
+    });
+  },
+
+  removeRoom: (roomId) => {
+    set((state) => {
+      const { [roomId]: _removed, ...remainingMessages } = state.messages;
+      const { [roomId]: _typing, ...remainingTyping } = state.typingByRoom;
+      return {
+        rooms: state.rooms.filter((r) => r.id !== roomId),
+        messages: remainingMessages,
+        typingByRoom: remainingTyping,
+        activeRoomId:
+          state.activeRoomId === roomId ? null : state.activeRoomId,
+      };
+    });
   },
 
   reset: () =>

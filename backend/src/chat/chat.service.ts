@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, Not } from 'typeorm';
 import { ChatRoom } from './entities/chat-room.entity';
@@ -153,5 +158,136 @@ export class ChatService {
       .andWhere('sender_id != :userId', { userId })
       .andWhere('status != :status', { status: 'read' })
       .execute();
+  }
+
+  private async loadGroupOrFail(roomId: string): Promise<ChatRoom> {
+    const room = await this.roomsRepo.findOne({
+      where: { id: roomId },
+      relations: ['members'],
+    });
+    if (!room) throw new NotFoundException('Chat room not found');
+    if (room.type !== 'group')
+      throw new BadRequestException('Operation only allowed on group rooms');
+    return room;
+  }
+
+  private assertAdmin(room: ChatRoom, userId: string): void {
+    if (room.adminId !== userId)
+      throw new ForbiddenException('Only the group admin can do this');
+  }
+
+  private assertMember(room: ChatRoom, userId: string): void {
+    if (!room.members.some((m) => m.id === userId))
+      throw new ForbiddenException('You are not a member of this group');
+  }
+
+  async renameGroup(
+    roomId: string,
+    requesterId: string,
+    name: string,
+  ): Promise<ChatRoom> {
+    const trimmed = name?.trim();
+    if (!trimmed) throw new BadRequestException('Name cannot be empty');
+
+    const room = await this.loadGroupOrFail(roomId);
+    this.assertAdmin(room, requesterId);
+
+    room.name = trimmed;
+    return this.roomsRepo.save(room);
+  }
+
+  async updateGroupAvatar(
+    roomId: string,
+    requesterId: string,
+    avatar: string | null,
+  ): Promise<ChatRoom> {
+    const room = await this.loadGroupOrFail(roomId);
+    this.assertAdmin(room, requesterId);
+
+    room.avatar = avatar || null;
+    return this.roomsRepo.save(room);
+  }
+
+  async addMembers(
+    roomId: string,
+    requesterId: string,
+    memberIds: string[],
+  ): Promise<ChatRoom> {
+    if (!Array.isArray(memberIds) || memberIds.length === 0)
+      throw new BadRequestException('memberIds must be a non-empty array');
+
+    const room = await this.loadGroupOrFail(roomId);
+    this.assertAdmin(room, requesterId);
+
+    const existingIds = new Set(room.members.map((m) => m.id));
+    const newIds = memberIds.filter((id) => !existingIds.has(id));
+
+    if (newIds.length === 0) return room;
+
+    const newMembers = await Promise.all(
+      newIds.map((id) => this.usersService.findById(id)),
+    );
+    room.members = [...room.members, ...newMembers];
+    return this.roomsRepo.save(room);
+  }
+
+  async removeMember(
+    roomId: string,
+    requesterId: string,
+    targetUserId: string,
+  ): Promise<ChatRoom> {
+    const room = await this.loadGroupOrFail(roomId);
+    this.assertAdmin(room, requesterId);
+
+    if (targetUserId === requesterId)
+      throw new BadRequestException(
+        'Admin cannot remove themselves — use leave or transfer-admin',
+      );
+
+    if (!room.members.some((m) => m.id === targetUserId))
+      throw new NotFoundException('User is not a member of this group');
+
+    room.members = room.members.filter((m) => m.id !== targetUserId);
+    return this.roomsRepo.save(room);
+  }
+
+  async leaveGroup(
+    roomId: string,
+    userId: string,
+  ): Promise<{ removed: boolean; room?: ChatRoom }> {
+    const room = await this.loadGroupOrFail(roomId);
+    this.assertMember(room, userId);
+
+    if (room.adminId === userId && room.members.length > 1)
+      throw new BadRequestException(
+        'Admin must transfer admin role before leaving',
+      );
+
+    room.members = room.members.filter((m) => m.id !== userId);
+
+    if (room.members.length === 0) {
+      await this.roomsRepo.remove(room);
+      return { removed: true };
+    }
+
+    const saved = await this.roomsRepo.save(room);
+    return { removed: false, room: saved };
+  }
+
+  async transferAdmin(
+    roomId: string,
+    requesterId: string,
+    newAdminId: string,
+  ): Promise<ChatRoom> {
+    const room = await this.loadGroupOrFail(roomId);
+    this.assertAdmin(room, requesterId);
+
+    if (newAdminId === requesterId) return room;
+
+    if (!room.members.some((m) => m.id === newAdminId))
+      throw new BadRequestException('New admin must already be a member');
+
+    room.adminId = newAdminId;
+    return this.roomsRepo.save(room);
   }
 }

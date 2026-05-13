@@ -7,6 +7,8 @@ import { useColorScheme } from 'nativewind';
 import ChatsScreen from '../screens/chat/ChatsScreen';
 import ChatRoomScreen from '../screens/chat/ChatRoomScreen';
 import NewChatScreen from '../screens/chat/NewChatScreen';
+import NewGroupScreen from '../screens/chat/NewGroupScreen';
+import GroupSettingsScreen from '../screens/chat/GroupSettingsScreen';
 import SettingsScreen from '../screens/settings/SettingsScreen';
 import { MainTabParamList, RootStackParamList } from '../types';
 
@@ -98,6 +100,16 @@ export default function MainNavigator() {
         name="NewChat"
         component={NewChatScreen}
         options={{ animation: 'slide_from_bottom' }}
+      />
+      <Stack.Screen
+        name="NewGroup"
+        component={NewGroupScreen}
+        options={{ animation: 'slide_from_bottom' }}
+      />
+      <Stack.Screen
+        name="GroupSettings"
+        component={GroupSettingsScreen}
+        options={{ animation: 'slide_from_right' }}
       />
     </Stack.Navigator>
   );

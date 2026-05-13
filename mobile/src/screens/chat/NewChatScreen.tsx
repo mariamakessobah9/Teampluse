@@ -87,6 +87,32 @@ export default function NewChatScreen() {
         </View>
       </View>
 
+      {/* New group entry */}
+      <TouchableOpacity
+        onPress={() => nav.navigate('NewGroup')}
+        activeOpacity={0.7}
+        className="flex-row items-center px-4 py-3"
+      >
+        <View className="w-12 h-12 rounded-2xl bg-primary-600 items-center justify-center mr-3">
+          <Ionicons name="people" size={22} color="#ffffff" />
+        </View>
+        <View className="flex-1">
+          <Text className="text-ink-900 dark:text-white font-semibold text-base">
+            New group
+          </Text>
+          <Text className="text-ink-400 dark:text-slate-400 text-sm">
+            Start a conversation with multiple people
+          </Text>
+        </View>
+        <Ionicons
+          name="chevron-forward"
+          size={20}
+          color={isDark ? '#64748b' : '#9ca3af'}
+        />
+      </TouchableOpacity>
+
+      <View className="h-px bg-ink-200/40 dark:bg-slate-700/50 mx-4" />
+
       {loading ? (
         <View className="items-center mt-6">
           <ActivityIndicator color="#16a34a" />
