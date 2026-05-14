@@ -1,5 +1,13 @@
 import { getSocket } from '../services/socket';
 
+export interface SendMessageExtras {
+  type?: 'text' | 'image' | 'file' | 'voice';
+  fileUrl?: string;
+  fileName?: string;
+  fileSize?: number;
+  duration?: number;
+}
+
 export function useSocket() {
   const joinRoom = (roomId: string) => {
     getSocket()?.emit('join-room', { roomId });
@@ -12,10 +20,17 @@ export function useSocket() {
   const sendMessage = (
     roomId: string,
     content: string,
-    type = 'text',
-    fileUrl?: string,
+    extras?: SendMessageExtras,
   ) => {
-    getSocket()?.emit('send-message', { roomId, content, type, fileUrl });
+    getSocket()?.emit('send-message', {
+      roomId,
+      content,
+      type: extras?.type ?? 'text',
+      fileUrl: extras?.fileUrl,
+      fileName: extras?.fileName,
+      fileSize: extras?.fileSize,
+      duration: extras?.duration,
+    });
   };
 
   const sendTyping = (roomId: string, isTyping: boolean) => {

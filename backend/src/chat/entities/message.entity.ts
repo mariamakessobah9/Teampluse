@@ -23,6 +23,15 @@ export class Message {
   @Column({ nullable: true })
   fileUrl: string;
 
+  @Column({ nullable: true })
+  fileName: string;
+
+  @Column({ type: 'integer', nullable: true })
+  fileSize: number;
+
+  @Column({ type: 'float', nullable: true })
+  duration: number;
+
   @Column({ default: 'sent' }) // 'sent' | 'delivered' | 'read'
   status: string;
 

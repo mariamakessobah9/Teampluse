@@ -7,6 +7,7 @@ import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
 import { ChatModule } from './chat/chat.module';
 import { MailModule } from './mail/mail.module';
+import { UploadModule } from './upload/upload.module';
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { MailModule } from './mail/mail.module';
     UsersModule,
     AuthModule,
     ChatModule,
+    UploadModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })

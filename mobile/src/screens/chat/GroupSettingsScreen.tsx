@@ -20,9 +20,11 @@ import {
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from 'nativewind';
+import * as ImagePicker from 'expo-image-picker';
 import api from '../../services/api';
 import { useChatStore } from '../../store/useChatStore';
 import { useAuthStore } from '../../store/useAuthStore';
+import { uploadToCloudinary } from '../../services/upload';
 import { RootStackParamList, User } from '../../types';
 
 type Route = RouteProp<RootStackParamList, 'GroupSettings'>;
@@ -48,6 +50,7 @@ export default function GroupSettingsScreen() {
   const [renaming, setRenaming] = useState(false);
   const [newName, setNewName] = useState(room?.name || '');
   const [busy, setBusy] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -107,6 +110,38 @@ export default function GroupSettingsScreen() {
       </View>
     );
   }
+
+  const handleChangeAvatar = async () => {
+    if (!isAdmin) return;
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert('Permission required', 'Allow access to your photos.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.85,
+    });
+    if (result.canceled || !result.assets?.[0]) return;
+    const asset = result.assets[0];
+    setUploadingAvatar(true);
+    try {
+      const uploaded = await uploadToCloudinary({
+        uri: asset.uri,
+        name: asset.fileName || `group-${Date.now()}.jpg`,
+        mimeType: asset.mimeType || 'image/jpeg',
+        folder: 'group-avatars',
+        resourceType: 'image',
+      });
+      await updateGroup(roomId, { avatar: uploaded.url });
+    } catch (e: any) {
+      Alert.alert('Upload failed', e?.message || 'Please try again.');
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
 
   const handleSaveName = async () => {
     const trimmed = newName.trim();
@@ -326,15 +361,33 @@ export default function GroupSettingsScreen() {
       <ScrollView contentContainerStyle={{ paddingBottom: 32 }}>
         {/* Group avatar + name */}
         <View className="items-center py-6">
-          <View className="w-24 h-24 rounded-3xl bg-primary-100 dark:bg-primary-900 items-center justify-center overflow-hidden mb-3">
-            {room.avatar ? (
-              <Image source={{ uri: room.avatar }} className="w-24 h-24" />
-            ) : (
-              <Text className="text-primary-700 dark:text-primary-300 text-3xl font-bold">
-                {(room.name || '?').charAt(0).toUpperCase()}
-              </Text>
-            )}
-          </View>
+          <TouchableOpacity
+            activeOpacity={isAdmin ? 0.8 : 1}
+            onPress={handleChangeAvatar}
+            disabled={!isAdmin || uploadingAvatar}
+          >
+            <View className="relative mb-3">
+              <View className="w-24 h-24 rounded-3xl bg-primary-100 dark:bg-primary-900 items-center justify-center overflow-hidden">
+                {room.avatar ? (
+                  <Image source={{ uri: room.avatar }} className="w-24 h-24" />
+                ) : (
+                  <Text className="text-primary-700 dark:text-primary-300 text-3xl font-bold">
+                    {(room.name || '?').charAt(0).toUpperCase()}
+                  </Text>
+                )}
+                {uploadingAvatar && (
+                  <View className="absolute inset-0 bg-black/40 items-center justify-center">
+                    <ActivityIndicator color="#ffffff" />
+                  </View>
+                )}
+              </View>
+              {isAdmin && (
+                <View className="absolute bottom-0 right-0 w-7 h-7 rounded-full bg-primary-600 items-center justify-center border-2 border-surface-page dark:border-dark-200">
+                  <Ionicons name="camera" size={14} color="#ffffff" />
+                </View>
+              )}
+            </View>
+          </TouchableOpacity>
 
           {renaming ? (
             <View className="flex-row items-center px-6 w-full">

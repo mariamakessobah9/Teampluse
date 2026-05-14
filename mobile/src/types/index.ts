@@ -27,6 +27,9 @@ export interface Message {
   content: string;
   type: 'text' | 'image' | 'file' | 'voice';
   fileUrl?: string;
+  fileName?: string;
+  fileSize?: number;
+  duration?: number;
   status: 'sent' | 'delivered' | 'read';
   sender: User;
   senderId: string;

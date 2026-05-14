@@ -8,14 +8,30 @@ import {
   Image,
   KeyboardAvoidingView,
   Platform,
+  Modal,
+  ActivityIndicator,
+  Alert,
+  Linking,
+  Pressable,
 } from 'react-native';
 import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from 'nativewind';
+import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
+import {
+  useAudioRecorder,
+  createAudioPlayer,
+  setAudioModeAsync,
+  requestRecordingPermissionsAsync,
+  RecordingPresets,
+} from 'expo-audio';
+import type { AudioPlayer } from 'expo-audio';
 import { useChatStore } from '../../store/useChatStore';
 import { useAuthStore } from '../../store/useAuthStore';
 import { useSocket } from '../../hooks/useSocket';
+import { uploadToCloudinary } from '../../services/upload';
 import { Message, RootStackParamList } from '../../types';
 
 type ChatRoomRoute = RouteProp<RootStackParamList, 'ChatRoom'>;
@@ -29,6 +45,35 @@ const formatTime = (dateStr: string) =>
     hour: '2-digit',
     minute: '2-digit',
   });
+
+const formatFileSize = (bytes?: number) => {
+  if (!bytes && bytes !== 0) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
+
+const formatDuration = (seconds?: number) => {
+  if (!seconds && seconds !== 0) return '0:00';
+  const s = Math.floor(seconds);
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return `${m}:${r.toString().padStart(2, '0')}`;
+};
+
+const guessMimeType = (uri: string, fallback: string) => {
+  const ext = uri.split('.').pop()?.toLowerCase();
+  if (!ext) return fallback;
+  if (ext === 'jpg' || ext === 'jpeg') return 'image/jpeg';
+  if (ext === 'png') return 'image/png';
+  if (ext === 'gif') return 'image/gif';
+  if (ext === 'webp') return 'image/webp';
+  if (ext === 'pdf') return 'application/pdf';
+  if (ext === 'm4a') return 'audio/m4a';
+  if (ext === 'mp3') return 'audio/mpeg';
+  if (ext === 'wav') return 'audio/wav';
+  return fallback;
+};
 
 export default function ChatRoomScreen() {
   const route = useRoute<ChatRoomRoute>();
@@ -48,6 +93,25 @@ export default function ChatRoomScreen() {
   const { joinRoom, leaveRoom, sendMessage, sendTyping, markAsRead } = useSocket();
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
+
+  const [attachOpen, setAttachOpen] = useState(false);
+  const [uploadingType, setUploadingType] = useState<null | 'image' | 'file' | 'voice'>(
+    null,
+  );
+  const [fullscreenUrl, setFullscreenUrl] = useState<string | null>(null);
+  const [voiceState, setVoiceState] = useState<'idle' | 'recording' | 'preview'>(
+    'idle',
+  );
+  const [recordSeconds, setRecordSeconds] = useState(0);
+  const [previewUri, setPreviewUri] = useState<string | null>(null);
+  const [previewDuration, setPreviewDuration] = useState(0);
+  const [previewPlaying, setPreviewPlaying] = useState(false);
+  const recordTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const playbackRef = useRef<AudioPlayer | null>(null);
+  const previewPlayerRef = useRef<AudioPlayer | null>(null);
+  const [playingId, setPlayingId] = useState<string | null>(null);
+
+  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const headerAccent = isDark ? '#86efac' : '#15803d';
   const mutedIcon = isDark ? '#94a3b8' : '#4b5563';
 
@@ -131,6 +195,261 @@ export default function ChatRoomScreen() {
     setText('');
   };
 
+  const handlePickImage = async (fromCamera: boolean) => {
+    setAttachOpen(false);
+    const perm = fromCamera
+      ? await ImagePicker.requestCameraPermissionsAsync()
+      : await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert('Permission required', 'Allow access to continue.');
+      return;
+    }
+    const result = fromCamera
+      ? await ImagePicker.launchCameraAsync({ quality: 0.85, mediaTypes: ['images'] })
+      : await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ['images'],
+          quality: 0.85,
+        });
+    if (result.canceled || !result.assets?.[0]) return;
+    const asset = result.assets[0];
+    setUploadingType('image');
+    try {
+      const uploaded = await uploadToCloudinary({
+        uri: asset.uri,
+        name: asset.fileName || `image-${Date.now()}.jpg`,
+        mimeType: asset.mimeType || guessMimeType(asset.uri, 'image/jpeg'),
+        folder: 'messages/images',
+        resourceType: 'image',
+      });
+      sendMessage(roomId, '', {
+        type: 'image',
+        fileUrl: uploaded.url,
+        fileSize: uploaded.bytes,
+      });
+    } catch (e: any) {
+      Alert.alert('Upload failed', e?.message || 'Please try again.');
+    } finally {
+      setUploadingType(null);
+    }
+  };
+
+  const handlePickDocument = async () => {
+    setAttachOpen(false);
+    const result = await DocumentPicker.getDocumentAsync({
+      copyToCacheDirectory: true,
+    });
+    if (result.canceled || !result.assets?.[0]) return;
+    const asset = result.assets[0];
+    setUploadingType('file');
+    try {
+      const uploaded = await uploadToCloudinary({
+        uri: asset.uri,
+        name: asset.name,
+        mimeType: asset.mimeType || guessMimeType(asset.uri, 'application/octet-stream'),
+        folder: 'messages/files',
+        resourceType: 'raw',
+      });
+      sendMessage(roomId, '', {
+        type: 'file',
+        fileUrl: uploaded.url,
+        fileName: asset.name,
+        fileSize: asset.size ?? uploaded.bytes,
+      });
+    } catch (e: any) {
+      Alert.alert('Upload failed', e?.message || 'Please try again.');
+    } finally {
+      setUploadingType(null);
+    }
+  };
+
+  const cleanupPreviewPlayer = () => {
+    if (previewPlayerRef.current) {
+      try {
+        previewPlayerRef.current.remove();
+      } catch {}
+      previewPlayerRef.current = null;
+    }
+    setPreviewPlaying(false);
+  };
+
+  const startRecording = async () => {
+    try {
+      const perm = await requestRecordingPermissionsAsync();
+      if (!perm.granted) {
+        Alert.alert('Microphone permission required');
+        return;
+      }
+      await setAudioModeAsync({
+        allowsRecording: true,
+        playsInSilentMode: true,
+      });
+      await recorder.prepareToRecordAsync();
+      recorder.record();
+      setVoiceState('recording');
+      setRecordSeconds(0);
+      recordTimerRef.current = setInterval(
+        () => setRecordSeconds((s) => s + 1),
+        1000,
+      );
+    } catch (e: any) {
+      Alert.alert('Recording failed', e?.message || 'Please try again.');
+    }
+  };
+
+  const stopRecording = async () => {
+    if (recordTimerRef.current) {
+      clearInterval(recordTimerRef.current);
+      recordTimerRef.current = null;
+    }
+    const elapsed = recordSeconds;
+    try {
+      const durationSec = recorder.currentTime || elapsed;
+      await recorder.stop();
+      const uri = recorder.uri;
+      if (!uri || durationSec < 0.6) {
+        setVoiceState('idle');
+        setRecordSeconds(0);
+        return;
+      }
+      setPreviewUri(uri);
+      setPreviewDuration(durationSec);
+      setVoiceState('preview');
+    } catch (e: any) {
+      Alert.alert('Recording failed', e?.message || 'Please try again.');
+      setVoiceState('idle');
+    } finally {
+      setRecordSeconds(0);
+    }
+  };
+
+  const cancelRecording = async () => {
+    if (recordTimerRef.current) {
+      clearInterval(recordTimerRef.current);
+      recordTimerRef.current = null;
+    }
+    if (voiceState === 'recording') {
+      try {
+        await recorder.stop();
+      } catch {}
+    }
+    cleanupPreviewPlayer();
+    setPreviewUri(null);
+    setPreviewDuration(0);
+    setRecordSeconds(0);
+    setVoiceState('idle');
+  };
+
+  const togglePreviewPlayback = () => {
+    if (!previewUri) return;
+    if (previewPlayerRef.current) {
+      if (previewPlaying) {
+        previewPlayerRef.current.pause();
+        setPreviewPlaying(false);
+      } else {
+        previewPlayerRef.current.play();
+        setPreviewPlaying(true);
+      }
+      return;
+    }
+    try {
+      const player = createAudioPlayer(
+        { uri: previewUri },
+        { updateInterval: 200 },
+      );
+      player.addListener('playbackStatusUpdate', (status) => {
+        if (status.didJustFinish) {
+          setPreviewPlaying(false);
+        }
+      });
+      previewPlayerRef.current = player;
+      player.play();
+      setPreviewPlaying(true);
+    } catch (e: any) {
+      Alert.alert('Playback failed', e?.message || 'Please try again.');
+    }
+  };
+
+  const sendVoicePreview = async () => {
+    if (!previewUri) return;
+    const uri = previewUri;
+    const duration = previewDuration;
+    cleanupPreviewPlayer();
+    setPreviewUri(null);
+    setPreviewDuration(0);
+    setVoiceState('idle');
+    setUploadingType('voice');
+    try {
+      const uploaded = await uploadToCloudinary({
+        uri,
+        name: `voice-${Date.now()}.m4a`,
+        mimeType: 'audio/m4a',
+        folder: 'messages/voice',
+        resourceType: 'video',
+      });
+      sendMessage(roomId, '', {
+        type: 'voice',
+        fileUrl: uploaded.url,
+        duration,
+        fileSize: uploaded.bytes,
+      });
+    } catch (e: any) {
+      Alert.alert('Upload failed', e?.message || 'Please try again.');
+    } finally {
+      setUploadingType(null);
+    }
+  };
+
+  const togglePlay = (msg: Message) => {
+    if (!msg.fileUrl) return;
+    try {
+      if (playingId === msg.id && playbackRef.current) {
+        playbackRef.current.pause();
+        playbackRef.current.remove();
+        playbackRef.current = null;
+        setPlayingId(null);
+        return;
+      }
+      if (playbackRef.current) {
+        playbackRef.current.remove();
+        playbackRef.current = null;
+      }
+      const player = createAudioPlayer({ uri: msg.fileUrl }, { updateInterval: 200 });
+      playbackRef.current = player;
+      setPlayingId(msg.id);
+      player.addListener('playbackStatusUpdate', (status) => {
+        if (status.didJustFinish) {
+          player.remove();
+          if (playbackRef.current === player) playbackRef.current = null;
+          setPlayingId(null);
+        }
+      });
+      player.play();
+    } catch (e: any) {
+      Alert.alert('Playback failed', e?.message || 'Please try again.');
+    }
+  };
+
+  const openDocument = (msg: Message) => {
+    if (!msg.fileUrl) return;
+    Linking.openURL(msg.fileUrl).catch(() => {
+      Alert.alert('Cannot open this file');
+    });
+  };
+
+  useEffect(() => {
+    return () => {
+      if (playbackRef.current) {
+        playbackRef.current.remove();
+        playbackRef.current = null;
+      }
+      if (previewPlayerRef.current) {
+        previewPlayerRef.current.remove();
+        previewPlayerRef.current = null;
+      }
+      if (recordTimerRef.current) clearInterval(recordTimerRef.current);
+    };
+  }, []);
+
   const renderMessage = ({ item, index }: { item: Message; index: number }) => {
     const isMe = item.senderId === currentUser?.id;
     const prev = messages[index - 1];
@@ -162,25 +481,114 @@ export default function ChatRoomScreen() {
           </View>
         )}
         <View
-          className={`max-w-[78%] rounded-2xl px-4 py-2.5 ${
+          className={`max-w-[78%] rounded-2xl ${
+            item.type === 'image'
+              ? 'overflow-hidden p-1'
+              : 'px-4 py-2.5'
+          } ${
             isMe
               ? 'bg-primary-700 rounded-br-md'
               : 'bg-surface-bubbleIn dark:bg-dark-100 rounded-bl-md'
           }`}
         >
-          {!isMe && isGroup && showAvatar && (
+          {!isMe && isGroup && showAvatar && item.type !== 'image' && (
             <Text className="text-primary-700 dark:text-primary-300 text-xs font-bold mb-0.5">
               {item.sender?.name || 'Unknown'}
             </Text>
           )}
-          <Text
-            className={`text-base ${
-              isMe ? 'text-white' : 'text-ink-900 dark:text-white'
+
+          {item.type === 'image' && item.fileUrl ? (
+            <Pressable onPress={() => setFullscreenUrl(item.fileUrl!)}>
+              <Image
+                source={{ uri: item.fileUrl }}
+                style={{ width: 220, height: 220, borderRadius: 14 }}
+                resizeMode="cover"
+              />
+            </Pressable>
+          ) : item.type === 'file' && item.fileUrl ? (
+            <TouchableOpacity
+              onPress={() => openDocument(item)}
+              activeOpacity={0.7}
+              className="flex-row items-center"
+            >
+              <View
+                className={`w-10 h-10 rounded-xl items-center justify-center mr-2 ${
+                  isMe ? 'bg-white/20' : 'bg-primary-100 dark:bg-primary-900'
+                }`}
+              >
+                <Ionicons
+                  name="document-text"
+                  size={22}
+                  color={isMe ? '#ffffff' : isDark ? '#86efac' : '#15803d'}
+                />
+              </View>
+              <View className="flex-shrink">
+                <Text
+                  numberOfLines={1}
+                  className={`font-semibold text-sm ${
+                    isMe ? 'text-white' : 'text-ink-900 dark:text-white'
+                  }`}
+                >
+                  {item.fileName || 'Document'}
+                </Text>
+                <Text
+                  className={`text-[11px] ${
+                    isMe ? 'text-white/80' : 'text-ink-400 dark:text-slate-400'
+                  }`}
+                >
+                  {formatFileSize(item.fileSize)}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          ) : item.type === 'voice' && item.fileUrl ? (
+            <View className="flex-row items-center">
+              <TouchableOpacity
+                onPress={() => togglePlay(item)}
+                activeOpacity={0.7}
+                className={`w-9 h-9 rounded-full items-center justify-center mr-2 ${
+                  isMe ? 'bg-white/20' : 'bg-primary-100 dark:bg-primary-900'
+                }`}
+              >
+                <Ionicons
+                  name={playingId === item.id ? 'pause' : 'play'}
+                  size={18}
+                  color={isMe ? '#ffffff' : isDark ? '#86efac' : '#15803d'}
+                />
+              </TouchableOpacity>
+              <View className="flex-row items-end mr-2" style={{ height: 18 }}>
+                {[6, 12, 8, 14, 10, 12, 7].map((h, i) => (
+                  <View
+                    key={i}
+                    style={{ height: h, width: 2, marginHorizontal: 1 }}
+                    className={`rounded-full ${
+                      isMe ? 'bg-white/70' : 'bg-primary-500'
+                    }`}
+                  />
+                ))}
+              </View>
+              <Text
+                className={`text-xs ${
+                  isMe ? 'text-white/90' : 'text-ink-500 dark:text-slate-300'
+                }`}
+              >
+                {formatDuration(item.duration)}
+              </Text>
+            </View>
+          ) : (
+            <Text
+              className={`text-base ${
+                isMe ? 'text-white' : 'text-ink-900 dark:text-white'
+              }`}
+            >
+              {item.content}
+            </Text>
+          )}
+
+          <View
+            className={`flex-row items-center justify-end ${
+              item.type === 'image' ? 'mt-1 px-2 pb-1' : 'mt-1'
             }`}
           >
-            {item.content}
-          </Text>
-          <View className="flex-row items-center justify-end mt-1">
             <Text
               className={`text-[10px] ${
                 isMe ? 'text-white/80' : 'text-ink-400 dark:text-slate-400'
@@ -331,28 +739,207 @@ export default function ChatRoomScreen() {
         </View>
       )}
 
-      {/* Input */}
-      <View className="flex-row items-center px-4 py-3 bg-surface-card dark:bg-dark-300 border-t border-ink-200/50 dark:border-slate-700/50">
-        <TouchableOpacity className="w-9 h-9 rounded-full bg-surface-chip dark:bg-dark-100 items-center justify-center mr-2">
-          <Ionicons name="add" size={20} color={mutedIcon} />
-        </TouchableOpacity>
-        <TextInput
-          className="flex-1 bg-surface-chip dark:bg-dark-100 text-ink-900 dark:text-white rounded-2xl px-4 py-2.5 text-base mr-2"
-          placeholder="Message..."
-          placeholderTextColor={isDark ? '#64748b' : '#9ca3af'}
-          value={text}
-          onChangeText={handleChangeText}
-          multiline
-          maxLength={2000}
-        />
-        <TouchableOpacity
-          className="w-10 h-10 rounded-full bg-primary-600 items-center justify-center"
-          activeOpacity={0.85}
-          onPress={handleSend}
+      {/* Uploading indicator */}
+      {uploadingType && (
+        <View className="flex-row items-center justify-center px-4 py-2 bg-primary-50 dark:bg-primary-900/30">
+          <ActivityIndicator size="small" color="#16a34a" />
+          <Text className="text-primary-700 dark:text-primary-200 text-xs ml-2">
+            Uploading {uploadingType}…
+          </Text>
+        </View>
+      )}
+
+      {/* Voice bar: recording or preview state replaces the input */}
+      {voiceState === 'recording' ? (
+        <View className="flex-row items-center px-4 py-3 bg-surface-card dark:bg-dark-300 border-t border-ink-200/50 dark:border-slate-700/50">
+          <TouchableOpacity
+            onPress={cancelRecording}
+            activeOpacity={0.7}
+            className="w-10 h-10 rounded-full bg-red-50 dark:bg-red-900/40 items-center justify-center mr-3"
+          >
+            <Ionicons name="trash-outline" size={18} color="#ef4444" />
+          </TouchableOpacity>
+          <View className="flex-1 flex-row items-center bg-red-50 dark:bg-red-900/30 rounded-2xl px-4 py-2.5">
+            <View className="w-2.5 h-2.5 rounded-full bg-red-500 mr-2" />
+            <Text className="text-red-600 dark:text-red-300 text-sm font-semibold flex-1">
+              Recording…
+            </Text>
+            <Text className="text-red-600 dark:text-red-300 text-sm font-mono">
+              {formatDuration(recordSeconds)}
+            </Text>
+          </View>
+          <TouchableOpacity
+            onPress={stopRecording}
+            activeOpacity={0.85}
+            className="w-10 h-10 rounded-full bg-primary-600 items-center justify-center ml-3"
+          >
+            <Ionicons name="stop" size={18} color="#ffffff" />
+          </TouchableOpacity>
+        </View>
+      ) : voiceState === 'preview' ? (
+        <View className="flex-row items-center px-4 py-3 bg-surface-card dark:bg-dark-300 border-t border-ink-200/50 dark:border-slate-700/50">
+          <TouchableOpacity
+            onPress={cancelRecording}
+            activeOpacity={0.7}
+            className="w-10 h-10 rounded-full bg-red-50 dark:bg-red-900/40 items-center justify-center mr-3"
+          >
+            <Ionicons name="trash-outline" size={18} color="#ef4444" />
+          </TouchableOpacity>
+          <View className="flex-1 flex-row items-center bg-primary-50 dark:bg-primary-900/30 rounded-2xl px-3 py-2">
+            <TouchableOpacity
+              onPress={togglePreviewPlayback}
+              activeOpacity={0.7}
+              className="w-9 h-9 rounded-full bg-primary-600 items-center justify-center mr-3"
+            >
+              <Ionicons
+                name={previewPlaying ? 'pause' : 'play'}
+                size={16}
+                color="#ffffff"
+              />
+            </TouchableOpacity>
+            <View className="flex-1">
+              <Text className="text-ink-900 dark:text-white text-sm font-semibold">
+                Voice message
+              </Text>
+              <Text className="text-ink-400 dark:text-slate-400 text-xs">
+                {formatDuration(previewDuration)}
+              </Text>
+            </View>
+          </View>
+          <TouchableOpacity
+            onPress={sendVoicePreview}
+            activeOpacity={0.85}
+            className="w-10 h-10 rounded-full bg-primary-600 items-center justify-center ml-3"
+          >
+            <Ionicons name="send" size={18} color="#ffffff" />
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <View className="flex-row items-center px-4 py-3 bg-surface-card dark:bg-dark-300 border-t border-ink-200/50 dark:border-slate-700/50">
+          <TouchableOpacity
+            onPress={() => setAttachOpen(true)}
+            className="w-9 h-9 rounded-full bg-surface-chip dark:bg-dark-100 items-center justify-center mr-2"
+            activeOpacity={0.7}
+          >
+            <Ionicons name="add" size={20} color={mutedIcon} />
+          </TouchableOpacity>
+          <TextInput
+            className="flex-1 bg-surface-chip dark:bg-dark-100 text-ink-900 dark:text-white rounded-2xl px-4 py-2.5 text-base mr-2"
+            placeholder="Message..."
+            placeholderTextColor={isDark ? '#64748b' : '#9ca3af'}
+            value={text}
+            onChangeText={handleChangeText}
+            multiline
+            maxLength={2000}
+          />
+          {text.trim().length > 0 ? (
+            <TouchableOpacity
+              className="w-10 h-10 rounded-full bg-primary-600 items-center justify-center"
+              activeOpacity={0.85}
+              onPress={handleSend}
+            >
+              <Ionicons name="send" size={18} color="#ffffff" />
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              onPress={startRecording}
+              activeOpacity={0.85}
+              className="w-10 h-10 rounded-full bg-primary-600 items-center justify-center"
+            >
+              <Ionicons name="mic" size={18} color="#ffffff" />
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+
+      {/* Attach action sheet */}
+      <Modal
+        visible={attachOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setAttachOpen(false)}
+      >
+        <Pressable
+          className="flex-1 bg-black/40 justify-end"
+          onPress={() => setAttachOpen(false)}
         >
-          <Ionicons name="send" size={18} color="#ffffff" />
-        </TouchableOpacity>
-      </View>
+          <Pressable
+            onPress={(e) => e.stopPropagation()}
+            className="bg-surface-card dark:bg-dark-300 rounded-t-3xl px-6 pt-5 pb-10"
+          >
+            <View className="items-center mb-4">
+              <View className="w-10 h-1 rounded-full bg-ink-200 dark:bg-slate-600" />
+            </View>
+            <Text className="text-ink-900 dark:text-white font-bold text-base mb-4">
+              Send a media
+            </Text>
+            <View className="flex-row flex-wrap">
+              {[
+                {
+                  key: 'camera',
+                  icon: 'camera' as const,
+                  label: 'Camera',
+                  onPress: () => handlePickImage(true),
+                },
+                {
+                  key: 'gallery',
+                  icon: 'image' as const,
+                  label: 'Gallery',
+                  onPress: () => handlePickImage(false),
+                },
+                {
+                  key: 'doc',
+                  icon: 'document-text' as const,
+                  label: 'Document',
+                  onPress: handlePickDocument,
+                },
+              ].map((opt) => (
+                <TouchableOpacity
+                  key={opt.key}
+                  onPress={opt.onPress}
+                  activeOpacity={0.7}
+                  className="items-center mr-6 mb-2"
+                  style={{ width: 72 }}
+                >
+                  <View className="w-14 h-14 rounded-2xl bg-primary-100 dark:bg-primary-900 items-center justify-center mb-2">
+                    <Ionicons name={opt.icon} size={24} color={headerAccent} />
+                  </View>
+                  <Text className="text-ink-700 dark:text-slate-200 text-xs font-semibold">
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Fullscreen image */}
+      <Modal
+        visible={!!fullscreenUrl}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setFullscreenUrl(null)}
+      >
+        <Pressable
+          className="flex-1 bg-black/95 items-center justify-center"
+          onPress={() => setFullscreenUrl(null)}
+        >
+          {fullscreenUrl && (
+            <Image
+              source={{ uri: fullscreenUrl }}
+              style={{ width: '100%', height: '100%' }}
+              resizeMode="contain"
+            />
+          )}
+          <TouchableOpacity
+            onPress={() => setFullscreenUrl(null)}
+            className="absolute top-12 right-6 w-10 h-10 rounded-full bg-black/50 items-center justify-center"
+          >
+            <Ionicons name="close" size={24} color="#ffffff" />
+          </TouchableOpacity>
+        </Pressable>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }

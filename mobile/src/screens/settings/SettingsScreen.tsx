@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -6,11 +6,14 @@ import {
   Alert,
   ScrollView,
   Image,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from 'nativewind';
+import * as ImagePicker from 'expo-image-picker';
 import { useAuthStore } from '../../store/useAuthStore';
 import { useThemeStore } from '../../store/useThemeStore';
+import { uploadToCloudinary } from '../../services/upload';
 
 const MENU_ITEMS = [
   { label: 'Notifications', icon: 'notifications-outline' as const },
@@ -22,10 +25,43 @@ const MENU_ITEMS = [
 export default function SettingsScreen() {
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
+  const updateProfile = useAuthStore((s) => s.updateProfile);
   const theme = useThemeStore((s) => s.theme);
   const setTheme = useThemeStore((s) => s.setTheme);
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+
+  const handleChangeAvatar = async () => {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert('Permission required', 'Allow access to your photos.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.85,
+    });
+    if (result.canceled || !result.assets?.[0]) return;
+    const asset = result.assets[0];
+    setUploadingAvatar(true);
+    try {
+      const uploaded = await uploadToCloudinary({
+        uri: asset.uri,
+        name: asset.fileName || `avatar-${Date.now()}.jpg`,
+        mimeType: asset.mimeType || 'image/jpeg',
+        folder: 'avatars',
+        resourceType: 'image',
+      });
+      await updateProfile({ avatar: uploaded.url });
+    } catch (e: any) {
+      Alert.alert('Upload failed', e?.message || 'Please try again.');
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
 
   const iconColor = isDark ? '#e5e7eb' : '#1f2937';
   const headerAccent = isDark ? '#86efac' : '#15803d';
@@ -64,23 +100,34 @@ export default function SettingsScreen() {
       <ScrollView contentContainerStyle={{ paddingBottom: 96 }}>
         {/* Profile */}
         <View className="items-center mt-6 mb-4">
-          <View className="relative">
-            <View className="w-28 h-28 rounded-full border-[3px] border-primary-500 items-center justify-center bg-primary-100 dark:bg-primary-900 overflow-hidden">
-              {user?.avatar ? (
-                <Image
-                  source={{ uri: user.avatar }}
-                  className="w-28 h-28 rounded-full"
-                />
-              ) : (
-                <Text className="text-primary-700 dark:text-primary-300 text-3xl font-bold">
-                  {initials}
-                </Text>
-              )}
+          <TouchableOpacity
+            activeOpacity={0.8}
+            onPress={handleChangeAvatar}
+            disabled={uploadingAvatar}
+          >
+            <View className="relative">
+              <View className="w-28 h-28 rounded-full border-[3px] border-primary-500 items-center justify-center bg-primary-100 dark:bg-primary-900 overflow-hidden">
+                {user?.avatar ? (
+                  <Image
+                    source={{ uri: user.avatar }}
+                    className="w-28 h-28 rounded-full"
+                  />
+                ) : (
+                  <Text className="text-primary-700 dark:text-primary-300 text-3xl font-bold">
+                    {initials}
+                  </Text>
+                )}
+                {uploadingAvatar && (
+                  <View className="absolute inset-0 bg-black/40 items-center justify-center">
+                    <ActivityIndicator color="#ffffff" />
+                  </View>
+                )}
+              </View>
+              <View className="absolute bottom-1 right-1 w-7 h-7 rounded-full bg-primary-600 items-center justify-center border-2 border-surface-page dark:border-dark-200">
+                <Ionicons name="camera" size={14} color="#ffffff" />
+              </View>
             </View>
-            <View className="absolute bottom-1 right-1 w-7 h-7 rounded-full bg-primary-600 items-center justify-center border-2 border-surface-page dark:border-dark-200">
-              <Ionicons name="checkmark" size={16} color="#ffffff" />
-            </View>
-          </View>
+          </TouchableOpacity>
           <Text className="text-ink-900 dark:text-white text-2xl font-bold mt-4">
             {user?.name || 'Unknown'}
           </Text>

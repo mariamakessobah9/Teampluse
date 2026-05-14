@@ -9,18 +9,9 @@ import ChatRoomScreen from '../screens/chat/ChatRoomScreen';
 import NewChatScreen from '../screens/chat/NewChatScreen';
 import NewGroupScreen from '../screens/chat/NewGroupScreen';
 import GroupSettingsScreen from '../screens/chat/GroupSettingsScreen';
+import TeamsScreen from '../screens/chat/TeamsScreen';
 import SettingsScreen from '../screens/settings/SettingsScreen';
 import { MainTabParamList, RootStackParamList } from '../types';
-
-function TeamsScreen() {
-  return (
-    <View className="flex-1 items-center justify-center bg-surface-page dark:bg-dark-200">
-      <Text className="text-ink-500 dark:text-slate-300 text-lg">
-        Teams – Coming Soon
-      </Text>
-    </View>
-  );
-}
 
 function CallsScreen() {
   return (

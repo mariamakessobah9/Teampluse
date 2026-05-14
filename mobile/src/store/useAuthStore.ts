@@ -17,6 +17,7 @@ interface AuthState {
   resetPassword: (email: string, otp: string, newPassword: string) => Promise<void>;
   logout: () => Promise<void>;
   loadToken: () => Promise<void>;
+  updateProfile: (payload: { name?: string; avatar?: string | null }) => Promise<User>;
 }
 
 const persistAuth = async (
@@ -83,5 +84,11 @@ export const useAuthStore = create<AuthState>((set) => ({
     } else {
       set({ isLoading: false });
     }
+  },
+
+  updateProfile: async (payload) => {
+    const { data } = await api.patch('/users/me', payload);
+    set({ user: data });
+    return data;
   },
 }));

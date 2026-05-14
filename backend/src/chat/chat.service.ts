@@ -112,11 +112,15 @@ export class ChatService {
     content: string,
     type = 'text',
     fileUrl?: string,
+    extras?: { fileName?: string; fileSize?: number; duration?: number },
   ): Promise<Message> {
     const message = this.messagesRepo.create({
       content,
       type,
       fileUrl,
+      fileName: extras?.fileName,
+      fileSize: extras?.fileSize,
+      duration: extras?.duration,
       senderId,
       chatRoomId,
     });

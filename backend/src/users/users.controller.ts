@@ -1,4 +1,12 @@
-import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { UsersService } from './users.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -12,6 +20,20 @@ export class UsersController {
   async getMe(@CurrentUser() current: { id: string }) {
     const user = await this.usersService.findById(current.id);
     const { password, otp, otpExpiresAt, ...result } = user;
+    return result;
+  }
+
+  @Patch('me')
+  async updateMe(
+    @CurrentUser('id') currentId: string,
+    @Body() body: { name?: string; avatar?: string | null },
+  ) {
+    const patch: { name?: string; avatar?: string | null } = {};
+    if (typeof body.name === 'string' && body.name.trim())
+      patch.name = body.name.trim();
+    if (body.avatar !== undefined) patch.avatar = body.avatar || null;
+    const updated = await this.usersService.update(currentId, patch);
+    const { password, otp, otpExpiresAt, ...result } = updated;
     return result;
   }
 

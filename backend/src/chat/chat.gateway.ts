@@ -101,6 +101,9 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       content: string;
       type?: string;
       fileUrl?: string;
+      fileName?: string;
+      fileSize?: number;
+      duration?: number;
     },
   ) {
     const userId = this.connectedUsers.get(client.id);
@@ -112,6 +115,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       data.content,
       data.type,
       data.fileUrl,
+      {
+        fileName: data.fileName,
+        fileSize: data.fileSize,
+        duration: data.duration,
+      },
     );
 
     // Broadcast to all clients in the room
