@@ -14,6 +14,7 @@ import {
 import { ChatService } from './chat.service';
 import { ChatGateway } from './chat.gateway';
 import { NotificationsService } from '../notifications/notifications.service';
+import { UsersService } from '../users/users.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 
@@ -25,6 +26,7 @@ export class ChatController {
     @Inject(forwardRef(() => ChatGateway))
     private readonly chatGateway: ChatGateway,
     private readonly notificationsService: NotificationsService,
+    private readonly usersService: UsersService,
   ) {}
 
   @Get('rooms')
@@ -62,6 +64,24 @@ export class ChatController {
     @Query('limit') limit = 50,
   ) {
     return this.chatService.getRoomMessages(roomId, +page, +limit);
+  }
+
+  @Post('rooms/:id/pin')
+  async pinRoom(
+    @Param('id') roomId: string,
+    @CurrentUser('id') userId: string,
+  ) {
+    await this.usersService.pinRoom(userId, roomId);
+    return { ok: true };
+  }
+
+  @Delete('rooms/:id/pin')
+  async unpinRoom(
+    @Param('id') roomId: string,
+    @CurrentUser('id') userId: string,
+  ) {
+    await this.usersService.unpinRoom(userId, roomId);
+    return { ok: true };
   }
 
   @Patch('rooms/:id')

@@ -57,6 +57,24 @@ export class UsersService {
     return users.flatMap((u) => u.pushTokens || []);
   }
 
+  async getPinnedRoomIds(userId: string): Promise<string[]> {
+    const user = await this.findById(userId);
+    return user.pinnedRoomIds || [];
+  }
+
+  async pinRoom(userId: string, roomId: string): Promise<void> {
+    const user = await this.findById(userId);
+    const pinned = new Set(user.pinnedRoomIds || []);
+    pinned.add(roomId);
+    await this.usersRepo.update(userId, { pinnedRoomIds: [...pinned] });
+  }
+
+  async unpinRoom(userId: string, roomId: string): Promise<void> {
+    const user = await this.findById(userId);
+    const pinned = (user.pinnedRoomIds || []).filter((id) => id !== roomId);
+    await this.usersRepo.update(userId, { pinnedRoomIds: pinned });
+  }
+
   async pruneTokens(deadTokens: string[]): Promise<void> {
     if (deadTokens.length === 0) return;
     const dead = new Set(deadTokens);

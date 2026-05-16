@@ -18,6 +18,7 @@ export interface ChatRoom {
   adminId?: string;
   lastMessage?: Message;
   unreadCount?: number;
+  isPinned?: boolean;
   createdAt: string;
   updatedAt: string;
 }

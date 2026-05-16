@@ -35,6 +35,9 @@ interface ChatState {
   upsertRoom: (room: ChatRoom) => void;
   removeRoom: (roomId: string) => void;
 
+  pinRoom: (roomId: string) => Promise<void>;
+  unpinRoom: (roomId: string) => Promise<void>;
+
   reset: () => void;
 }
 
@@ -59,6 +62,7 @@ const sortRoomsByActivity = (rooms: ChatRoom[]): ChatRoom[] =>
   dedupById(rooms)
     .map(normalizeRoom)
     .sort((a, b) => {
+      if (!!a.isPinned !== !!b.isPinned) return a.isPinned ? -1 : 1;
       const aDate = new Date(a.lastMessage?.createdAt || a.updatedAt).getTime();
       const bDate = new Date(b.lastMessage?.createdAt || b.updatedAt).getTime();
       return bDate - aDate;
@@ -275,12 +279,47 @@ export const useChatStore = create<ChatState>((set, get) => ({
                   ...room,
                   lastMessage: room.lastMessage ?? r.lastMessage,
                   unreadCount: room.unreadCount ?? r.unreadCount,
+                  isPinned: room.isPinned ?? r.isPinned,
                 }
               : r,
           )
         : [room, ...state.rooms];
       return { rooms: sortRoomsByActivity(next) };
     });
+  },
+
+  pinRoom: async (roomId) => {
+    const setPinned = (value: boolean) =>
+      set((state) => ({
+        rooms: sortRoomsByActivity(
+          state.rooms.map((r) =>
+            r.id === roomId ? { ...r, isPinned: value } : r,
+          ),
+        ),
+      }));
+    setPinned(true);
+    try {
+      await api.post(`/chat/rooms/${roomId}/pin`);
+    } catch {
+      setPinned(false);
+    }
+  },
+
+  unpinRoom: async (roomId) => {
+    const setPinned = (value: boolean) =>
+      set((state) => ({
+        rooms: sortRoomsByActivity(
+          state.rooms.map((r) =>
+            r.id === roomId ? { ...r, isPinned: value } : r,
+          ),
+        ),
+      }));
+    setPinned(false);
+    try {
+      await api.delete(`/chat/rooms/${roomId}/pin`);
+    } catch {
+      setPinned(true);
+    }
   },
 
   removeRoom: (roomId) => {

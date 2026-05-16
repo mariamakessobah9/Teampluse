@@ -43,6 +43,9 @@ export class User {
   @Column({ type: 'simple-array', nullable: true })
   pushTokens: string[];
 
+  @Column({ type: 'simple-array', nullable: true })
+  pinnedRoomIds: string[];
+
   @ManyToMany(() => ChatRoom, (room) => room.members)
   chatRooms: ChatRoom[];
 

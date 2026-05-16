@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   Image,
   ScrollView,
+  Alert,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -17,12 +18,14 @@ import { ChatRoom, RootStackParamList } from '../../types';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 
-const FILTERS = ['All', 'Direct', 'Teams', 'Departments'] as const;
+const FILTERS = ['All', 'Direct', 'Teams'] as const;
 type Filter = (typeof FILTERS)[number];
 
 export default function ChatsScreen() {
   const rooms = useChatStore((s) => s.rooms);
   const fetchRooms = useChatStore((s) => s.fetchRooms);
+  const pinRoom = useChatStore((s) => s.pinRoom);
+  const unpinRoom = useChatStore((s) => s.unpinRoom);
   const currentUser = useAuthStore((s) => s.user);
   const nav = useNavigation<Nav>();
   const [filter, setFilter] = useState<Filter>('All');
@@ -72,6 +75,16 @@ export default function ChatsScreen() {
     return date.toLocaleDateString();
   };
 
+  const handleTogglePin = (room: ChatRoom) => {
+    const name = getRoomDisplayName(room);
+    Alert.alert(name, undefined, [
+      { text: 'Cancel', style: 'cancel' },
+      room.isPinned
+        ? { text: 'Unpin conversation', onPress: () => unpinRoom(room.id) }
+        : { text: 'Pin conversation', onPress: () => pinRoom(room.id) },
+    ]);
+  };
+
   const filteredRooms = rooms.filter((r) => {
     if (filter === 'Direct') return r.type === 'direct';
     if (filter === 'Teams') return r.type === 'group';
@@ -82,6 +95,7 @@ export default function ChatsScreen() {
     <TouchableOpacity
       className="flex-row items-center px-4 py-3"
       activeOpacity={0.7}
+      onLongPress={() => handleTogglePin(item)}
       onPress={() =>
         nav.navigate('ChatRoom', {
           roomId: item.id,
@@ -113,12 +127,22 @@ export default function ChatsScreen() {
 
       <View className="flex-1">
         <View className="flex-row justify-between items-center">
-          <Text
-            className="text-ink-900 dark:text-white font-semibold text-base flex-1 mr-2"
-            numberOfLines={1}
-          >
-            {getRoomDisplayName(item)}
-          </Text>
+          <View className="flex-row items-center flex-1 mr-2">
+            <Text
+              className="text-ink-900 dark:text-white font-semibold text-base flex-shrink"
+              numberOfLines={1}
+            >
+              {getRoomDisplayName(item)}
+            </Text>
+            {item.isPinned && (
+              <Ionicons
+                name="pin"
+                size={13}
+                color={isDark ? '#86efac' : '#15803d'}
+                style={{ marginLeft: 5, transform: [{ rotate: '45deg' }] }}
+              />
+            )}
+          </View>
           <Text className="text-ink-400 dark:text-slate-400 text-xs">
             {formatTime(item.lastMessage?.createdAt || item.updatedAt)}
           </Text>
@@ -176,42 +200,6 @@ export default function ChatsScreen() {
           );
         })}
       </ScrollView>
-
-      {/* Pinned card */}
-      <View className="mx-4 mb-4 bg-surface-card dark:bg-dark-100 rounded-2xl p-4 shadow-sm">
-        <View className="flex-row items-start justify-between">
-          <View className="flex-row items-center">
-            <View className="w-9 h-9 rounded-full bg-primary-200 border-2 border-white dark:border-dark-100" />
-            <View className="w-9 h-9 rounded-full bg-primary-300 border-2 border-white dark:border-dark-100 -ml-3" />
-            <View className="w-9 h-9 rounded-full bg-primary-500 -ml-3 items-center justify-center border-2 border-white dark:border-dark-100">
-              <Text className="text-white text-xs font-bold">+3</Text>
-            </View>
-          </View>
-          <Ionicons name="bookmark" size={20} color="#16a34a" />
-        </View>
-        <Text className="text-ink-900 dark:text-white font-bold text-base mt-3">
-          Design Ecosystem
-        </Text>
-        <Text className="text-ink-400 dark:text-slate-400 text-sm mt-1">
-          Sarah: Just uploaded the new greenhouse icons!
-        </Text>
-      </View>
-
-      {/* Highlight cards */}
-      <View className="flex-row mx-4 mb-4">
-        <View className="flex-1 bg-surface-card dark:bg-dark-100 rounded-2xl p-4 mr-2">
-          <Ionicons name="rocket-outline" size={22} color="#16a34a" />
-          <Text className="text-ink-900 dark:text-white font-semibold text-sm mt-2">
-            Product Launch
-          </Text>
-        </View>
-        <View className="flex-1 bg-surface-card dark:bg-dark-100 rounded-2xl p-4 ml-2">
-          <Ionicons name="flash-outline" size={22} color="#16a34a" />
-          <Text className="text-ink-900 dark:text-white font-semibold text-sm mt-2">
-            Sustainability
-          </Text>
-        </View>
-      </View>
     </View>
   );
 

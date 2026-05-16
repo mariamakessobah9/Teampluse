@@ -83,6 +83,10 @@ export class ChatService {
       .orderBy('room.updatedAt', 'DESC')
       .getMany();
 
+    const pinnedIds = new Set(
+      await this.usersService.getPinnedRoomIds(userId),
+    );
+
     const result = await Promise.all(
       rooms.map(async (room) => {
         const lastMessage = await this.messagesRepo.findOne({
@@ -99,7 +103,12 @@ export class ChatService {
           },
         });
 
-        return { ...room, lastMessage, unreadCount };
+        return {
+          ...room,
+          lastMessage,
+          unreadCount,
+          isPinned: pinnedIds.has(room.id),
+        };
       }),
     );
 
