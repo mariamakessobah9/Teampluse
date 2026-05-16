@@ -32,6 +32,7 @@ import { useChatStore } from '../../store/useChatStore';
 import { useAuthStore } from '../../store/useAuthStore';
 import { useSocket } from '../../hooks/useSocket';
 import { uploadToCloudinary } from '../../services/upload';
+import { callManager, isCallSupported } from '../../services/callManager';
 import { Message, RootStackParamList } from '../../types';
 
 type ChatRoomRoute = RouteProp<RootStackParamList, 'ChatRoom'>;
@@ -466,6 +467,29 @@ export default function ChatRoomScreen() {
     Alert.alert('Delete message', undefined, buttons);
   };
 
+  const handleStartCall = async (type: 'audio' | 'video') => {
+    if (!otherMember) return;
+    if (!isCallSupported()) {
+      Alert.alert(
+        'Calls unavailable',
+        'Please update to the latest app build to make calls.',
+      );
+      return;
+    }
+    try {
+      await callManager.startCall(
+        {
+          id: otherMember.id,
+          name: otherMember.name,
+          avatar: otherMember.avatar,
+        },
+        type,
+      );
+    } catch (e: any) {
+      Alert.alert('Call failed', e?.message || 'Please try again.');
+    }
+  };
+
   useEffect(() => {
     return () => {
       if (playbackRef.current) {
@@ -745,12 +769,26 @@ export default function ChatRoomScreen() {
           </View>
         </TouchableOpacity>
 
-        <TouchableOpacity className="ml-3">
-          <Ionicons name="call-outline" size={22} color={headerAccent} />
-        </TouchableOpacity>
-        <TouchableOpacity className="ml-4">
-          <Ionicons name="videocam-outline" size={22} color={headerAccent} />
-        </TouchableOpacity>
+        {!isGroup && (
+          <>
+            <TouchableOpacity
+              className="ml-3"
+              onPress={() => handleStartCall('audio')}
+            >
+              <Ionicons name="call-outline" size={22} color={headerAccent} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              className="ml-4"
+              onPress={() => handleStartCall('video')}
+            >
+              <Ionicons
+                name="videocam-outline"
+                size={22}
+                color={headerAccent}
+              />
+            </TouchableOpacity>
+          </>
+        )}
         <TouchableOpacity className="ml-4">
           <Ionicons name="search" size={22} color={headerAccent} />
         </TouchableOpacity>

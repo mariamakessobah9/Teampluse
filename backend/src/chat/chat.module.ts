@@ -8,6 +8,7 @@ import { ChatGateway } from './chat.gateway';
 import { UsersModule } from '../users/users.module';
 import { AuthModule } from '../auth/auth.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { CallsModule } from '../calls/calls.module';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
     UsersModule,
     AuthModule,
     NotificationsModule,
+    CallsModule,
   ],
   providers: [ChatService, ChatGateway],
   controllers: [ChatController],

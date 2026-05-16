@@ -39,6 +39,18 @@ export interface Message {
   createdAt: string;
 }
 
+export interface Call {
+  id: string;
+  caller: User;
+  callerId: string;
+  callee: User;
+  calleeId: string;
+  type: 'audio' | 'video';
+  status: 'completed' | 'missed' | 'rejected';
+  duration: number;
+  createdAt: string;
+}
+
 export type RootStackParamList = {
   Auth: undefined;
   Main: undefined;

@@ -4,6 +4,7 @@ import { useAuthStore } from '../store/useAuthStore';
 import { useChatStore } from '../store/useChatStore';
 import { useBannerStore } from '../store/useBannerStore';
 import { setAppBadgeCount } from '../services/notifications';
+import { callManager } from '../services/callManager';
 import { ChatRoom, Message } from '../types';
 
 const TYPING_AUTO_CLEAR_MS = 5000;
@@ -132,6 +133,35 @@ export function useGlobalSocket() {
 
       socket.on('removed-from-room', ({ roomId }: { roomId: string }) => {
         useChatStore.getState().removeRoom(roomId);
+      });
+
+      // ---- WebRTC call signaling ----
+      socket.on('incoming-call', (data: any) => {
+        callManager.receiveIncomingCall(data);
+      });
+      socket.on('call-accepted', () => {
+        callManager.onCallAccepted();
+      });
+      socket.on('call-rejected', () => {
+        callManager.onCallEnded();
+      });
+      socket.on('call-cancelled', () => {
+        callManager.onCallEnded();
+      });
+      socket.on('call-ended', () => {
+        callManager.onCallEnded();
+      });
+      socket.on('call-unavailable', () => {
+        callManager.onCallEnded();
+      });
+      socket.on('webrtc-offer', (data: any) => {
+        callManager.onWebrtcOffer(data);
+      });
+      socket.on('webrtc-answer', (data: any) => {
+        callManager.onWebrtcAnswer(data);
+      });
+      socket.on('webrtc-ice', (data: any) => {
+        callManager.onWebrtcIce(data);
       });
     })();
 

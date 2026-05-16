@@ -12,10 +12,19 @@ import { JwtService } from '@nestjs/jwt';
 import { ChatService } from './chat.service';
 import { UsersService } from '../users/users.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { CallsService } from '../calls/calls.service';
 import { ChatRoom } from './entities/chat-room.entity';
 import { Message } from './entities/message.entity';
 
 const userRoomKey = (userId: string) => `user:${userId}`;
+
+interface ActiveCall {
+  callId: string;
+  callerId: string;
+  calleeId: string;
+  type: string; // 'audio' | 'video'
+  startedAt: number | null; // set when the callee accepts
+}
 
 const messagePreview = (message: Message): string => {
   switch (message.type) {
@@ -39,12 +48,14 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   server: Server;
 
   private connectedUsers = new Map<string, string>(); // socketId -> userId
+  private activeCalls = new Map<string, ActiveCall>(); // callId -> call
 
   constructor(
     private readonly chatService: ChatService,
     private readonly usersService: UsersService,
     private readonly jwtService: JwtService,
     private readonly notificationsService: NotificationsService,
+    private readonly callsService: CallsService,
   ) {}
 
   async handleConnection(client: Socket) {
@@ -80,8 +91,43 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.connectedUsers.delete(client.id);
       await this.usersService.setOnlineStatus(userId, false);
       this.server.emit('user-offline', { userId });
+
+      // End any call this user was part of (if no other socket of theirs remains).
+      const stillConnected = [...this.connectedUsers.values()].includes(
+        userId,
+      );
+      if (!stillConnected) {
+        for (const call of [...this.activeCalls.values()]) {
+          if (call.callerId !== userId && call.calleeId !== userId) continue;
+          const otherId =
+            call.callerId === userId ? call.calleeId : call.callerId;
+          this.server
+            .to(userRoomKey(otherId))
+            .emit('call-ended', { callId: call.callId });
+          await this.recordCall(
+            call,
+            call.startedAt ? 'completed' : 'missed',
+          );
+          this.activeCalls.delete(call.callId);
+        }
+      }
       console.log(`User ${userId} disconnected`);
     }
+  }
+
+  private async recordCall(call: ActiveCall, status: string): Promise<void> {
+    const duration = call.startedAt
+      ? Math.round((Date.now() - call.startedAt) / 1000)
+      : 0;
+    await this.callsService
+      .record({
+        callerId: call.callerId,
+        calleeId: call.calleeId,
+        type: call.type,
+        status,
+        duration,
+      })
+      .catch(() => undefined);
   }
 
   @SubscribeMessage('join-room')
@@ -203,6 +249,144 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.server.to(data.roomId).emit('messages-read', {
       roomId: data.roomId,
       userId,
+    });
+  }
+
+  // ---- WebRTC call signaling ----
+
+  @SubscribeMessage('call-initiate')
+  async handleCallInitiate(
+    @ConnectedSocket() client: Socket,
+    @MessageBody()
+    data: { callId: string; calleeId: string; callType: string },
+  ) {
+    const userId = this.connectedUsers.get(client.id);
+    if (!userId) return;
+
+    const calleeSockets = await this.server
+      .in(userRoomKey(data.calleeId))
+      .fetchSockets();
+
+    if (calleeSockets.length === 0) {
+      client.emit('call-unavailable', { callId: data.callId });
+      await this.callsService
+        .record({
+          callerId: userId,
+          calleeId: data.calleeId,
+          type: data.callType,
+          status: 'missed',
+        })
+        .catch(() => undefined);
+      return;
+    }
+
+    this.activeCalls.set(data.callId, {
+      callId: data.callId,
+      callerId: userId,
+      calleeId: data.calleeId,
+      type: data.callType,
+      startedAt: null,
+    });
+
+    const caller = await this.usersService.findById(userId);
+    this.server.to(userRoomKey(data.calleeId)).emit('incoming-call', {
+      callId: data.callId,
+      callType: data.callType,
+      caller: {
+        id: caller.id,
+        name: caller.name,
+        avatar: caller.avatar,
+      },
+    });
+  }
+
+  @SubscribeMessage('call-accept')
+  handleCallAccept(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { callId: string },
+  ) {
+    const call = this.activeCalls.get(data.callId);
+    if (!call) return;
+    call.startedAt = Date.now();
+    this.server
+      .to(userRoomKey(call.callerId))
+      .emit('call-accepted', { callId: data.callId });
+  }
+
+  @SubscribeMessage('call-reject')
+  async handleCallReject(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { callId: string },
+  ) {
+    const call = this.activeCalls.get(data.callId);
+    if (!call) return;
+    this.server
+      .to(userRoomKey(call.callerId))
+      .emit('call-rejected', { callId: data.callId });
+    await this.recordCall(call, 'rejected');
+    this.activeCalls.delete(data.callId);
+  }
+
+  @SubscribeMessage('call-cancel')
+  async handleCallCancel(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { callId: string },
+  ) {
+    const call = this.activeCalls.get(data.callId);
+    if (!call) return;
+    this.server
+      .to(userRoomKey(call.calleeId))
+      .emit('call-cancelled', { callId: data.callId });
+    await this.recordCall(call, 'missed');
+    this.activeCalls.delete(data.callId);
+  }
+
+  @SubscribeMessage('call-end')
+  async handleCallEnd(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { callId: string },
+  ) {
+    const call = this.activeCalls.get(data.callId);
+    if (!call) return;
+    const userId = this.connectedUsers.get(client.id);
+    const otherId =
+      userId === call.callerId ? call.calleeId : call.callerId;
+    this.server
+      .to(userRoomKey(otherId))
+      .emit('call-ended', { callId: data.callId });
+    await this.recordCall(call, call.startedAt ? 'completed' : 'missed');
+    this.activeCalls.delete(data.callId);
+  }
+
+  @SubscribeMessage('webrtc-offer')
+  handleWebrtcOffer(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { callId: string; to: string; sdp: unknown },
+  ) {
+    this.server
+      .to(userRoomKey(data.to))
+      .emit('webrtc-offer', { callId: data.callId, sdp: data.sdp });
+  }
+
+  @SubscribeMessage('webrtc-answer')
+  handleWebrtcAnswer(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { callId: string; to: string; sdp: unknown },
+  ) {
+    this.server
+      .to(userRoomKey(data.to))
+      .emit('webrtc-answer', { callId: data.callId, sdp: data.sdp });
+  }
+
+  @SubscribeMessage('webrtc-ice')
+  handleWebrtcIce(
+    @ConnectedSocket() client: Socket,
+    @MessageBody()
+    data: { callId: string; to: string; candidate: unknown },
+  ) {
+    this.server.to(userRoomKey(data.to)).emit('webrtc-ice', {
+      callId: data.callId,
+      candidate: data.candidate,
     });
   }
 

@@ -1,0 +1,64 @@
+import React from 'react';
+import { View, Text, TouchableOpacity, Image, Modal } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useCallStore } from '../store/useCallStore';
+import { callManager } from '../services/callManager';
+
+export default function IncomingCallModal() {
+  const status = useCallStore((s) => s.status);
+  const peer = useCallStore((s) => s.peer);
+  const callType = useCallStore((s) => s.callType);
+
+  const visible = status === 'incoming';
+
+  return (
+    <Modal visible={visible} transparent animationType="slide">
+      <View className="flex-1 bg-dark-300 items-center justify-between py-20">
+        <View className="items-center mt-10">
+          <Text className="text-slate-300 text-base mb-6">
+            Incoming {callType === 'video' ? 'video' : 'audio'} call
+          </Text>
+          <View className="w-32 h-32 rounded-full bg-primary-700 items-center justify-center overflow-hidden mb-5">
+            {peer?.avatar ? (
+              <Image source={{ uri: peer.avatar }} className="w-32 h-32" />
+            ) : (
+              <Text className="text-white text-5xl font-bold">
+                {(peer?.name || '?').charAt(0).toUpperCase()}
+              </Text>
+            )}
+          </View>
+          <Text className="text-white text-2xl font-bold">
+            {peer?.name || 'Unknown'}
+          </Text>
+        </View>
+
+        <View className="flex-row items-center justify-around w-full px-12">
+          <View className="items-center">
+            <TouchableOpacity
+              onPress={() => callManager.rejectCall()}
+              activeOpacity={0.85}
+              className="w-16 h-16 rounded-full bg-red-500 items-center justify-center"
+            >
+              <Ionicons name="close" size={30} color="#ffffff" />
+            </TouchableOpacity>
+            <Text className="text-slate-300 text-xs mt-2">Decline</Text>
+          </View>
+          <View className="items-center">
+            <TouchableOpacity
+              onPress={() => callManager.acceptCall()}
+              activeOpacity={0.85}
+              className="w-16 h-16 rounded-full bg-primary-500 items-center justify-center"
+            >
+              <Ionicons
+                name={callType === 'video' ? 'videocam' : 'call'}
+                size={28}
+                color="#ffffff"
+              />
+            </TouchableOpacity>
+            <Text className="text-slate-300 text-xs mt-2">Accept</Text>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}

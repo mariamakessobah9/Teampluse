@@ -1,7 +1,6 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { View, Text } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from 'nativewind';
 import ChatsScreen from '../screens/chat/ChatsScreen';
@@ -10,18 +9,9 @@ import NewChatScreen from '../screens/chat/NewChatScreen';
 import NewGroupScreen from '../screens/chat/NewGroupScreen';
 import GroupSettingsScreen from '../screens/chat/GroupSettingsScreen';
 import TeamsScreen from '../screens/chat/TeamsScreen';
+import CallsScreen from '../screens/chat/CallsScreen';
 import SettingsScreen from '../screens/settings/SettingsScreen';
 import { MainTabParamList, RootStackParamList } from '../types';
-
-function CallsScreen() {
-  return (
-    <View className="flex-1 items-center justify-center bg-surface-page dark:bg-dark-200">
-      <Text className="text-ink-500 dark:text-slate-300 text-lg">
-        Calls – Coming Soon
-      </Text>
-    </View>
-  );
-}
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
 const Stack = createNativeStackNavigator<RootStackParamList>();

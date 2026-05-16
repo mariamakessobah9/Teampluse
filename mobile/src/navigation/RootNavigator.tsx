@@ -5,6 +5,8 @@ import { useThemeStore } from '../store/useThemeStore';
 import { useGlobalSocket } from '../hooks/useGlobalSocket';
 import { usePushNotifications } from '../hooks/usePushNotifications';
 import InAppBanner from '../components/InAppBanner';
+import IncomingCallModal from '../components/IncomingCallModal';
+import CallScreen from '../screens/CallScreen';
 import AuthNavigator from './AuthNavigator';
 import MainNavigator from './MainNavigator';
 
@@ -33,6 +35,8 @@ export default function RootNavigator() {
     <>
       {isAuthenticated ? <MainNavigator /> : <AuthNavigator />}
       {isAuthenticated && <InAppBanner />}
+      {isAuthenticated && <IncomingCallModal />}
+      {isAuthenticated && <CallScreen />}
     </>
   );
 }
