@@ -7,12 +7,14 @@ import { ChatController } from './chat.controller';
 import { ChatGateway } from './chat.gateway';
 import { UsersModule } from '../users/users.module';
 import { AuthModule } from '../auth/auth.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([ChatRoom, Message]),
     UsersModule,
     AuthModule,
+    NotificationsModule,
   ],
   providers: [ChatService, ChatGateway],
   controllers: [ChatController],

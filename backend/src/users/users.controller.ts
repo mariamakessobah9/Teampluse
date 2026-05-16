@@ -1,9 +1,11 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
+  Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -35,6 +37,24 @@ export class UsersController {
     const updated = await this.usersService.update(currentId, patch);
     const { password, otp, otpExpiresAt, ...result } = updated;
     return result;
+  }
+
+  @Post('push-token')
+  async addPushToken(
+    @CurrentUser('id') currentId: string,
+    @Body('token') token: string,
+  ) {
+    await this.usersService.addPushToken(currentId, token);
+    return { ok: true };
+  }
+
+  @Delete('push-token')
+  async removePushToken(
+    @CurrentUser('id') currentId: string,
+    @Body('token') token: string,
+  ) {
+    await this.usersService.removePushToken(currentId, token);
+    return { ok: true };
   }
 
   @Get('search')

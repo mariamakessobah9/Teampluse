@@ -2,6 +2,8 @@ import { useEffect } from 'react';
 import { connectSocket, disconnectSocket } from '../services/socket';
 import { useAuthStore } from '../store/useAuthStore';
 import { useChatStore } from '../store/useChatStore';
+import { useBannerStore } from '../store/useBannerStore';
+import { setAppBadgeCount } from '../services/notifications';
 import { ChatRoom, Message } from '../types';
 
 const TYPING_AUTO_CLEAR_MS = 5000;
@@ -12,6 +14,19 @@ const clearTypingTimer = (key: string) => {
   if (t) {
     clearTimeout(t);
     typingTimers.delete(key);
+  }
+};
+
+const messagePreview = (message: Message): string => {
+  switch (message.type) {
+    case 'image':
+      return '📷 Photo';
+    case 'file':
+      return `📎 ${message.fileName || 'Document'}`;
+    case 'voice':
+      return '🎤 Voice message';
+    default:
+      return message.content || '';
   }
 };
 
@@ -34,7 +49,24 @@ export function useGlobalSocket() {
       }
 
       socket.on('new-message', (message: Message) => {
-        useChatStore.getState().handleIncomingMessage(message);
+        const chat = useChatStore.getState();
+        chat.handleIncomingMessage(message);
+
+        const myId = useAuthStore.getState().user?.id;
+        if (message.senderId === myId) return;
+        if (chat.activeRoomId === message.chatRoomId) return;
+
+        // App is open but the user isn't in this room — show in-app banner.
+        const room = chat.rooms.find((r) => r.id === message.chatRoomId);
+        const senderName = message.sender?.name || 'New message';
+        const isGroup = room?.type === 'group';
+        useBannerStore.getState().show({
+          title: isGroup ? room?.name || 'Group' : senderName,
+          body: isGroup
+            ? `${senderName}: ${messagePreview(message)}`
+            : messagePreview(message),
+          roomId: message.chatRoomId,
+        });
       });
 
       socket.on('message-delivered', ({ messageId, roomId }) => {
@@ -102,5 +134,27 @@ export function useGlobalSocket() {
       typingTimers.clear();
       disconnectSocket();
     };
+  }, [isAuthenticated]);
+
+  // Keep the app icon badge in sync with total unread messages.
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setAppBadgeCount(0);
+      return;
+    }
+    let lastBadge = -1;
+    const sync = (rooms: ChatRoom[]) => {
+      const total = rooms.reduce(
+        (sum, r) => sum + (r.unreadCount || 0),
+        0,
+      );
+      if (total !== lastBadge) {
+        lastBadge = total;
+        setAppBadgeCount(total);
+      }
+    };
+    sync(useChatStore.getState().rooms);
+    const unsub = useChatStore.subscribe((state) => sync(state.rooms));
+    return unsub;
   }, [isAuthenticated]);
 }

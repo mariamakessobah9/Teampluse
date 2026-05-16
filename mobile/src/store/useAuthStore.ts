@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import * as SecureStore from 'expo-secure-store';
 import api from '../services/api';
+import { unregisterActivePushToken } from '../services/notifications';
 import { User } from '../types';
 
 interface AuthState {
@@ -67,6 +68,8 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   logout: async () => {
+    // Remove this device's push token while the JWT is still valid.
+    await unregisterActivePushToken();
     await SecureStore.deleteItemAsync('token');
     set({ user: null, token: null, isAuthenticated: false });
   },

@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { ILike, Not, Repository } from 'typeorm';
+import { ILike, In, Not, Repository } from 'typeorm';
 import { User } from './user.entity';
 
 @Injectable()
@@ -32,6 +32,46 @@ export class UsersService {
 
   async setOnlineStatus(id: string, isOnline: boolean): Promise<void> {
     await this.usersRepo.update(id, { isOnline });
+  }
+
+  async addPushToken(id: string, token: string): Promise<void> {
+    if (!token) return;
+    const user = await this.findById(id);
+    const tokens = new Set(user.pushTokens || []);
+    tokens.add(token);
+    await this.usersRepo.update(id, { pushTokens: [...tokens] });
+  }
+
+  async removePushToken(id: string, token: string): Promise<void> {
+    const user = await this.findById(id);
+    const tokens = (user.pushTokens || []).filter((t) => t !== token);
+    await this.usersRepo.update(id, { pushTokens: tokens });
+  }
+
+  async getPushTokens(userIds: string[]): Promise<string[]> {
+    if (userIds.length === 0) return [];
+    const users = await this.usersRepo.find({
+      where: { id: In(userIds) },
+      select: ['id', 'pushTokens'],
+    });
+    return users.flatMap((u) => u.pushTokens || []);
+  }
+
+  async pruneTokens(deadTokens: string[]): Promise<void> {
+    if (deadTokens.length === 0) return;
+    const dead = new Set(deadTokens);
+    const users = await this.usersRepo
+      .createQueryBuilder('user')
+      .select(['user.id', 'user.pushTokens'])
+      .where('user.pushTokens IS NOT NULL')
+      .getMany();
+    for (const user of users) {
+      const current = user.pushTokens || [];
+      const remaining = current.filter((t) => !dead.has(t));
+      if (remaining.length !== current.length) {
+        await this.usersRepo.update(user.id, { pushTokens: remaining });
+      }
+    }
   }
 
   async remove(id: string): Promise<void> {

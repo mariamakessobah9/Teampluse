@@ -3,6 +3,8 @@ import { ActivityIndicator, View } from 'react-native';
 import { useAuthStore } from '../store/useAuthStore';
 import { useThemeStore } from '../store/useThemeStore';
 import { useGlobalSocket } from '../hooks/useGlobalSocket';
+import { usePushNotifications } from '../hooks/usePushNotifications';
+import InAppBanner from '../components/InAppBanner';
 import AuthNavigator from './AuthNavigator';
 import MainNavigator from './MainNavigator';
 
@@ -12,6 +14,7 @@ export default function RootNavigator() {
   const loadToken = useAuthStore((s) => s.loadToken);
   const loadTheme = useThemeStore((s) => s.loadTheme);
   useGlobalSocket();
+  usePushNotifications();
 
   useEffect(() => {
     loadTheme();
@@ -26,5 +29,10 @@ export default function RootNavigator() {
     );
   }
 
-  return isAuthenticated ? <MainNavigator /> : <AuthNavigator />;
+  return (
+    <>
+      {isAuthenticated ? <MainNavigator /> : <AuthNavigator />}
+      {isAuthenticated && <InAppBanner />}
+    </>
+  );
 }

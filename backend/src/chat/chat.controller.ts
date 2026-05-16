@@ -13,6 +13,7 @@ import {
 } from '@nestjs/common';
 import { ChatService } from './chat.service';
 import { ChatGateway } from './chat.gateway';
+import { NotificationsService } from '../notifications/notifications.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 
@@ -23,6 +24,7 @@ export class ChatController {
     private readonly chatService: ChatService,
     @Inject(forwardRef(() => ChatGateway))
     private readonly chatGateway: ChatGateway,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   @Get('rooms')
@@ -94,6 +96,15 @@ export class ChatController {
   ) {
     const room = await this.chatService.addMembers(roomId, userId, memberIds);
     this.chatGateway.emitRoomUpdated(room);
+    if (Array.isArray(memberIds) && memberIds.length > 0) {
+      this.notificationsService
+        .sendToUsers(memberIds, {
+          title: room.name || 'Group',
+          body: 'You were added to the group',
+          data: { type: 'group', roomId },
+        })
+        .catch(() => undefined);
+    }
     return room;
   }
 
@@ -109,6 +120,13 @@ export class ChatController {
       targetUserId,
     );
     this.chatGateway.emitMemberRemoved(roomId, targetUserId, room);
+    this.notificationsService
+      .sendToUsers([targetUserId], {
+        title: room.name || 'Group',
+        body: 'You were removed from the group',
+        data: { type: 'group', roomId },
+      })
+      .catch(() => undefined);
     return room;
   }
 
@@ -138,6 +156,15 @@ export class ChatController {
       newAdminId,
     );
     this.chatGateway.emitRoomUpdated(room);
+    if (newAdminId && newAdminId !== userId) {
+      this.notificationsService
+        .sendToUsers([newAdminId], {
+          title: room.name || 'Group',
+          body: 'You are now the group admin',
+          data: { type: 'group', roomId },
+        })
+        .catch(() => undefined);
+    }
     return room;
   }
 }

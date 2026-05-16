@@ -40,8 +40,8 @@ export class User {
   @Column({ default: false })
   isVerified: boolean;
 
-  @Column({ nullable: true })
-  fcmToken: string;
+  @Column({ type: 'simple-array', nullable: true })
+  pushTokens: string[];
 
   @ManyToMany(() => ChatRoom, (room) => room.members)
   chatRooms: ChatRoom[];

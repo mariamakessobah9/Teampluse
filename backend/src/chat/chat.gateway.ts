@@ -11,9 +11,24 @@ import { Server, Socket } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
 import { ChatService } from './chat.service';
 import { UsersService } from '../users/users.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { ChatRoom } from './entities/chat-room.entity';
+import { Message } from './entities/message.entity';
 
 const userRoomKey = (userId: string) => `user:${userId}`;
+
+const messagePreview = (message: Message): string => {
+  switch (message.type) {
+    case 'image':
+      return '📷 Photo';
+    case 'file':
+      return `📎 ${message.fileName || 'Document'}`;
+    case 'voice':
+      return '🎤 Voice message';
+    default:
+      return message.content || '';
+  }
+};
 
 @WebSocketGateway({
   cors: { origin: '*' },
@@ -29,6 +44,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private readonly chatService: ChatService,
     private readonly usersService: UsersService,
     private readonly jwtService: JwtService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async handleConnection(client: Socket) {
@@ -132,6 +148,31 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         messageId: message.id,
         roomId: data.roomId,
       });
+    }
+
+    // Push notification to members who aren't currently viewing the room
+    const room = await this.chatService.getRoomById(data.roomId);
+    const activeUserIds = new Set(
+      roomSockets
+        .map((s) => this.connectedUsers.get(s.id))
+        .filter((id): id is string => Boolean(id)),
+    );
+    const recipients = room.members
+      .map((m) => m.id)
+      .filter((id) => id !== userId && !activeUserIds.has(id));
+
+    if (recipients.length > 0) {
+      const senderName = message.sender?.name || 'New message';
+      const isGroup = room.type === 'group';
+      this.notificationsService
+        .sendToUsers(recipients, {
+          title: isGroup ? room.name || 'Group' : senderName,
+          body: isGroup
+            ? `${senderName}: ${messagePreview(message)}`
+            : messagePreview(message),
+          data: { type: 'message', roomId: data.roomId },
+        })
+        .catch(() => undefined);
     }
   }
 
