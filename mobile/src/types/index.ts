@@ -32,6 +32,7 @@ export interface Message {
   fileSize?: number;
   duration?: number;
   status: 'sent' | 'delivered' | 'read';
+  deletedForEveryone?: boolean;
   sender: User;
   senderId: string;
   chatRoomId: string;

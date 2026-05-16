@@ -89,6 +89,10 @@ export default function ChatRoomScreen() {
   const setActiveRoom = useChatStore((s) => s.setActiveRoom);
   const room = useChatStore((s) => s.rooms.find((r) => r.id === roomId));
   const typingMap = useChatStore((s) => s.typingByRoom[roomId]);
+  const deleteMessageForMe = useChatStore((s) => s.deleteMessageForMe);
+  const deleteMessageForEveryone = useChatStore(
+    (s) => s.deleteMessageForEveryone,
+  );
   const currentUser = useAuthStore((s) => s.user);
   const { joinRoom, leaveRoom, sendMessage, sendTyping, markAsRead } = useSocket();
   const { colorScheme } = useColorScheme();
@@ -436,6 +440,32 @@ export default function ChatRoomScreen() {
     });
   };
 
+  const handleMessageLongPress = (msg: Message) => {
+    if (msg.deletedForEveryone) return;
+    const isMine = msg.senderId === currentUser?.id;
+    const buttons: any[] = [];
+    if (isMine) {
+      buttons.push({
+        text: 'Delete for everyone',
+        style: 'destructive',
+        onPress: () =>
+          deleteMessageForEveryone(roomId, msg.id).catch((e: any) =>
+            Alert.alert('Failed', e?.message || 'Please try again.'),
+          ),
+      });
+    }
+    buttons.push({
+      text: 'Delete for me',
+      style: 'destructive',
+      onPress: () =>
+        deleteMessageForMe(roomId, msg.id).catch((e: any) =>
+          Alert.alert('Failed', e?.message || 'Please try again.'),
+        ),
+    });
+    buttons.push({ text: 'Cancel', style: 'cancel' });
+    Alert.alert('Delete message', undefined, buttons);
+  };
+
   useEffect(() => {
     return () => {
       if (playbackRef.current) {
@@ -480,9 +510,10 @@ export default function ChatRoomScreen() {
             ) : null}
           </View>
         )}
-        <View
+        <Pressable
+          onLongPress={() => handleMessageLongPress(item)}
           className={`max-w-[78%] rounded-2xl ${
-            item.type === 'image'
+            item.type === 'image' && !item.deletedForEveryone
               ? 'overflow-hidden p-1'
               : 'px-4 py-2.5'
           } ${
@@ -491,13 +522,31 @@ export default function ChatRoomScreen() {
               : 'bg-surface-bubbleIn dark:bg-dark-100 rounded-bl-md'
           }`}
         >
-          {!isMe && isGroup && showAvatar && item.type !== 'image' && (
-            <Text className="text-primary-700 dark:text-primary-300 text-xs font-bold mb-0.5">
-              {item.sender?.name || 'Unknown'}
-            </Text>
-          )}
+          {!isMe &&
+            isGroup &&
+            showAvatar &&
+            (item.type !== 'image' || item.deletedForEveryone) && (
+              <Text className="text-primary-700 dark:text-primary-300 text-xs font-bold mb-0.5">
+                {item.sender?.name || 'Unknown'}
+              </Text>
+            )}
 
-          {item.type === 'image' && item.fileUrl ? (
+          {item.deletedForEveryone ? (
+            <View className="flex-row items-center">
+              <Ionicons
+                name="ban-outline"
+                size={15}
+                color={isMe ? '#ffffffaa' : isDark ? '#94a3b8' : '#9ca3af'}
+              />
+              <Text
+                className={`text-base italic ml-1.5 ${
+                  isMe ? 'text-white/70' : 'text-ink-400 dark:text-slate-400'
+                }`}
+              >
+                This message was deleted
+              </Text>
+            </View>
+          ) : item.type === 'image' && item.fileUrl ? (
             <Pressable onPress={() => setFullscreenUrl(item.fileUrl!)}>
               <Image
                 source={{ uri: item.fileUrl }}
@@ -596,7 +645,7 @@ export default function ChatRoomScreen() {
             >
               {formatTime(item.createdAt)}
             </Text>
-            {isMe && (
+            {isMe && !item.deletedForEveryone && (
               <Text
                 className={`text-[10px] ml-1 ${
                   item.status === 'read' ? 'text-white' : 'text-white/70'
@@ -606,7 +655,7 @@ export default function ChatRoomScreen() {
               </Text>
             )}
           </View>
-        </View>
+        </Pressable>
       </View>
     );
   };
@@ -634,7 +683,10 @@ export default function ChatRoomScreen() {
     >
       {/* Header */}
       <View className="bg-surface-header dark:bg-dark-300 pt-14 pb-3 px-4 flex-row items-center">
-        <TouchableOpacity onPress={() => nav.goBack()} className="mr-2">
+        <TouchableOpacity
+          onPress={() => (nav.canGoBack() ? nav.goBack() : nav.navigate('Main'))}
+          className="mr-2"
+        >
           <Ionicons name="chevron-back" size={26} color={headerAccent} />
         </TouchableOpacity>
 

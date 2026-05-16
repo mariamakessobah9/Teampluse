@@ -17,6 +17,9 @@ interface ChatState {
   handleIncomingMessage: (message: Message) => void;
   updateMessageStatus: (messageId: string, roomId: string, status: string) => void;
   markRoomMessagesRead: (roomId: string, readerUserId: string) => void;
+  deleteMessageForMe: (roomId: string, messageId: string) => Promise<void>;
+  deleteMessageForEveryone: (roomId: string, messageId: string) => Promise<void>;
+  markMessageDeleted: (roomId: string, messageId: string) => void;
   setUserOnline: (userId: string, isOnline: boolean) => void;
   setTyping: (roomId: string, userId: string, isTyping: boolean) => void;
 
@@ -180,6 +183,42 @@ export const useChatStore = create<ChatState>((set, get) => ({
         ),
       };
     });
+  },
+
+  deleteMessageForMe: async (roomId, messageId) => {
+    await api.delete(`/chat/messages/${messageId}/me`);
+    set((state) => ({
+      messages: {
+        ...state.messages,
+        [roomId]: (state.messages[roomId] || []).filter(
+          (m) => m.id !== messageId,
+        ),
+      },
+    }));
+  },
+
+  deleteMessageForEveryone: async (roomId, messageId) => {
+    await api.delete(`/chat/messages/${messageId}/everyone`);
+    get().markMessageDeleted(roomId, messageId);
+  },
+
+  markMessageDeleted: (roomId, messageId) => {
+    set((state) => ({
+      messages: {
+        ...state.messages,
+        [roomId]: (state.messages[roomId] || []).map((m) =>
+          m.id === messageId
+            ? {
+                ...m,
+                deletedForEveryone: true,
+                content: '',
+                fileUrl: undefined,
+                fileName: undefined,
+              }
+            : m,
+        ),
+      },
+    }));
   },
 
   setUserOnline: (userId, isOnline) => {

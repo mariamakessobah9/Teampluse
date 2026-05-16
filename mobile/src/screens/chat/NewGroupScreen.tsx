@@ -94,7 +94,10 @@ export default function NewGroupScreen() {
     <View className="flex-1 bg-surface-page dark:bg-dark-200">
       {/* Header */}
       <View className="bg-surface-header dark:bg-dark-300 pt-14 pb-3 px-4 flex-row items-center">
-        <TouchableOpacity onPress={() => nav.goBack()} className="mr-2">
+        <TouchableOpacity
+          onPress={() => (nav.canGoBack() ? nav.goBack() : nav.navigate('Main'))}
+          className="mr-2"
+        >
           <Ionicons name="chevron-back" size={26} color={headerAccent} />
         </TouchableOpacity>
         <Text className="text-ink-900 dark:text-white font-bold text-lg flex-1">

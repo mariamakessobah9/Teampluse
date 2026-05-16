@@ -35,6 +35,12 @@ export class Message {
   @Column({ default: 'sent' }) // 'sent' | 'delivered' | 'read'
   status: string;
 
+  @Column({ default: false })
+  deletedForEveryone: boolean;
+
+  @Column({ type: 'simple-array', nullable: true })
+  deletedFor: string[];
+
   @ManyToOne(() => User, { eager: true })
   @JoinColumn({ name: 'sender_id' })
   sender: User;

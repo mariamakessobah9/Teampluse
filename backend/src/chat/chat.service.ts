@@ -149,14 +149,54 @@ export class ChatService {
     chatRoomId: string,
     page = 1,
     limit = 50,
+    userId?: string,
   ): Promise<Message[]> {
-    return this.messagesRepo.find({
+    const messages = await this.messagesRepo.find({
       where: { chatRoomId },
       relations: ['sender'],
       order: { createdAt: 'ASC' },
       skip: (page - 1) * limit,
       take: limit,
     });
+    if (!userId) return messages;
+    return messages.filter(
+      (m) => !(m.deletedFor || []).includes(userId),
+    );
+  }
+
+  async deleteMessageForMe(
+    messageId: string,
+    userId: string,
+  ): Promise<void> {
+    const message = await this.messagesRepo.findOne({
+      where: { id: messageId },
+    });
+    if (!message) throw new NotFoundException('Message not found');
+    const deletedFor = new Set(message.deletedFor || []);
+    deletedFor.add(userId);
+    message.deletedFor = [...deletedFor];
+    await this.messagesRepo.save(message);
+  }
+
+  async deleteMessageForEveryone(
+    messageId: string,
+    userId: string,
+  ): Promise<Message> {
+    const message = await this.messagesRepo.findOne({
+      where: { id: messageId },
+    });
+    if (!message) throw new NotFoundException('Message not found');
+    if (message.senderId !== userId)
+      throw new ForbiddenException(
+        'Only the sender can delete a message for everyone',
+      );
+    message.deletedForEveryone = true;
+    message.content = '';
+    message.fileUrl = null;
+    message.fileName = null;
+    message.fileSize = null;
+    message.duration = null;
+    return this.messagesRepo.save(message);
   }
 
   async markMessagesAsRead(

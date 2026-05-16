@@ -60,10 +60,33 @@ export class ChatController {
   @Get('rooms/:id/messages')
   async getRoomMessages(
     @Param('id') roomId: string,
+    @CurrentUser('id') userId: string,
     @Query('page') page = 1,
     @Query('limit') limit = 50,
   ) {
-    return this.chatService.getRoomMessages(roomId, +page, +limit);
+    return this.chatService.getRoomMessages(roomId, +page, +limit, userId);
+  }
+
+  @Delete('messages/:id/me')
+  async deleteMessageForMe(
+    @Param('id') messageId: string,
+    @CurrentUser('id') userId: string,
+  ) {
+    await this.chatService.deleteMessageForMe(messageId, userId);
+    return { ok: true };
+  }
+
+  @Delete('messages/:id/everyone')
+  async deleteMessageForEveryone(
+    @Param('id') messageId: string,
+    @CurrentUser('id') userId: string,
+  ) {
+    const message = await this.chatService.deleteMessageForEveryone(
+      messageId,
+      userId,
+    );
+    this.chatGateway.emitMessageDeleted(message.chatRoomId, message.id);
+    return { ok: true };
   }
 
   @Post('rooms/:id/pin')

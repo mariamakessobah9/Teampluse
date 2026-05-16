@@ -77,6 +77,13 @@ export function useGlobalSocket() {
         useChatStore.getState().markRoomMessagesRead(roomId, userId);
       });
 
+      socket.on(
+        'message-deleted',
+        ({ roomId, messageId }: { roomId: string; messageId: string }) => {
+          useChatStore.getState().markMessageDeleted(roomId, messageId);
+        },
+      );
+
       socket.on('user-online', ({ userId }) => {
         useChatStore.getState().setUserOnline(userId, true);
       });
