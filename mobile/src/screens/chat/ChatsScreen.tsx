@@ -75,6 +75,23 @@ export default function ChatsScreen() {
     return date.toLocaleDateString();
   };
 
+  const lastMessageText = (room: ChatRoom) => {
+    const m = room.lastMessage;
+    if (!m) return 'No messages yet';
+    let preview = m.content;
+    if (m.type === 'image') preview = '📷 Photo';
+    else if (m.type === 'file') preview = `📎 ${m.fileName || 'Document'}`;
+    else if (m.type === 'voice') preview = '🎤 Voice message';
+    const first = m.sender?.name?.split(' ')[0];
+    return room.type === 'group' && first ? `${first}: ${preview}` : preview;
+  };
+
+  const openRoom = (room: ChatRoom) =>
+    nav.navigate('ChatRoom', {
+      roomId: room.id,
+      roomName: getRoomDisplayName(room),
+    });
+
   const handleTogglePin = (room: ChatRoom) => {
     const name = getRoomDisplayName(room);
     Alert.alert(name, undefined, [
@@ -90,6 +107,70 @@ export default function ChatsScreen() {
     if (filter === 'Teams') return r.type === 'group';
     return true;
   });
+
+  const pinnedRooms = filteredRooms.filter((r) => r.isPinned);
+  const unpinnedRooms = filteredRooms.filter((r) => !r.isPinned);
+
+  const renderAvatarStack = (room: ChatRoom) => {
+    const members = (room.members || []).filter(
+      (m) => room.type === 'group' || m.id !== currentUser?.id,
+    );
+    const shown = members.slice(0, 3);
+    const extra = members.length - shown.length;
+    return (
+      <View className="flex-row items-center">
+        {shown.map((m, i) => (
+          <View
+            key={m.id}
+            className={`w-9 h-9 rounded-full border-2 border-white dark:border-dark-100 overflow-hidden items-center justify-center bg-primary-200 dark:bg-primary-800 ${
+              i > 0 ? '-ml-3' : ''
+            }`}
+          >
+            {m.avatar ? (
+              <Image source={{ uri: m.avatar }} className="w-9 h-9" />
+            ) : (
+              <Text className="text-primary-800 dark:text-primary-100 font-bold text-xs">
+                {m.name.charAt(0).toUpperCase()}
+              </Text>
+            )}
+          </View>
+        ))}
+        {extra > 0 && (
+          <View className="w-9 h-9 rounded-full bg-primary-500 -ml-3 items-center justify-center border-2 border-white dark:border-dark-100">
+            <Text className="text-white text-xs font-bold">+{extra}</Text>
+          </View>
+        )}
+      </View>
+    );
+  };
+
+  const renderPinnedCard = (room: ChatRoom) => (
+    <TouchableOpacity
+      key={room.id}
+      onPress={() => openRoom(room)}
+      onLongPress={() => handleTogglePin(room)}
+      activeOpacity={0.85}
+      className="bg-surface-card dark:bg-dark-100 rounded-2xl p-4 mr-3 shadow-sm"
+      style={{ width: 248 }}
+    >
+      <View className="flex-row items-start justify-between">
+        {renderAvatarStack(room)}
+        <Ionicons name="bookmark" size={20} color="#16a34a" />
+      </View>
+      <Text
+        className="text-ink-900 dark:text-white font-bold text-base mt-3"
+        numberOfLines={1}
+      >
+        {getRoomDisplayName(room)}
+      </Text>
+      <Text
+        className="text-ink-400 dark:text-slate-400 text-sm mt-1"
+        numberOfLines={1}
+      >
+        {lastMessageText(room)}
+      </Text>
+    </TouchableOpacity>
+  );
 
   const renderRoom = ({ item }: { item: ChatRoom }) => (
     <TouchableOpacity
@@ -127,22 +208,12 @@ export default function ChatsScreen() {
 
       <View className="flex-1">
         <View className="flex-row justify-between items-center">
-          <View className="flex-row items-center flex-1 mr-2">
-            <Text
-              className="text-ink-900 dark:text-white font-semibold text-base flex-shrink"
-              numberOfLines={1}
-            >
-              {getRoomDisplayName(item)}
-            </Text>
-            {item.isPinned && (
-              <Ionicons
-                name="pin"
-                size={13}
-                color={isDark ? '#86efac' : '#15803d'}
-                style={{ marginLeft: 5, transform: [{ rotate: '45deg' }] }}
-              />
-            )}
-          </View>
+          <Text
+            className="text-ink-900 dark:text-white font-semibold text-base flex-1 mr-2"
+            numberOfLines={1}
+          >
+            {getRoomDisplayName(item)}
+          </Text>
           <Text className="text-ink-400 dark:text-slate-400 text-xs">
             {formatTime(item.lastMessage?.createdAt || item.updatedAt)}
           </Text>
@@ -152,7 +223,7 @@ export default function ChatsScreen() {
             className="text-ink-400 dark:text-slate-400 text-sm flex-1 mr-2"
             numberOfLines={1}
           >
-            {item.lastMessage?.content || 'No messages yet'}
+            {lastMessageText(item)}
           </Text>
           {(item.unreadCount ?? 0) > 0 && (
             <View className="bg-primary-500 rounded-full min-w-[20px] h-5 px-1.5 items-center justify-center">
@@ -200,6 +271,28 @@ export default function ChatsScreen() {
           );
         })}
       </ScrollView>
+
+      {/* Pinned conversations */}
+      {pinnedRooms.length > 0 && (
+        <View className="mb-2">
+          <Text className="text-ink-400 dark:text-slate-400 text-xs font-bold tracking-wider mx-4 mb-2">
+            PINNED
+          </Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 4 }}
+          >
+            {pinnedRooms.map(renderPinnedCard)}
+          </ScrollView>
+        </View>
+      )}
+
+      {unpinnedRooms.length > 0 && pinnedRooms.length > 0 && (
+        <Text className="text-ink-400 dark:text-slate-400 text-xs font-bold tracking-wider mx-4 mt-2 mb-1">
+          ALL CONVERSATIONS
+        </Text>
+      )}
     </View>
   );
 
@@ -221,7 +314,7 @@ export default function ChatsScreen() {
       </View>
 
       <FlatList
-        data={filteredRooms}
+        data={unpinnedRooms}
         keyExtractor={(item) => item.id}
         renderItem={renderRoom}
         ListHeaderComponent={ListHeader}
@@ -230,11 +323,13 @@ export default function ChatsScreen() {
         )}
         contentContainerStyle={{ paddingBottom: 96 }}
         ListEmptyComponent={
-          <View className="items-center justify-center pt-8 px-8">
-            <Text className="text-ink-400 dark:text-slate-400 text-base text-center">
-              No conversations yet.{'\n'}Tap the + button to start one.
-            </Text>
-          </View>
+          pinnedRooms.length === 0 ? (
+            <View className="items-center justify-center pt-8 px-8">
+              <Text className="text-ink-400 dark:text-slate-400 text-base text-center">
+                No conversations yet.{'\n'}Tap the + button to start one.
+              </Text>
+            </View>
+          ) : null
         }
       />
 
