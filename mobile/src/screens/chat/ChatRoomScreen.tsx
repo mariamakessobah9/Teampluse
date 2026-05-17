@@ -571,7 +571,10 @@ export default function ChatRoomScreen() {
               </Text>
             </View>
           ) : item.type === 'image' && item.fileUrl ? (
-            <Pressable onPress={() => setFullscreenUrl(item.fileUrl!)}>
+            <Pressable
+              onPress={() => setFullscreenUrl(item.fileUrl!)}
+              onLongPress={() => handleMessageLongPress(item)}
+            >
               <Image
                 source={{ uri: item.fileUrl }}
                 style={{ width: 220, height: 220, borderRadius: 14 }}
@@ -581,6 +584,7 @@ export default function ChatRoomScreen() {
           ) : item.type === 'file' && item.fileUrl ? (
             <TouchableOpacity
               onPress={() => openDocument(item)}
+              onLongPress={() => handleMessageLongPress(item)}
               activeOpacity={0.7}
               className="flex-row items-center"
             >
@@ -617,6 +621,7 @@ export default function ChatRoomScreen() {
             <View className="flex-row items-center">
               <TouchableOpacity
                 onPress={() => togglePlay(item)}
+                onLongPress={() => handleMessageLongPress(item)}
                 activeOpacity={0.7}
                 className={`w-9 h-9 rounded-full items-center justify-center mr-2 ${
                   isMe ? 'bg-white/20' : 'bg-primary-100 dark:bg-primary-900'
@@ -697,6 +702,8 @@ export default function ChatRoomScreen() {
   const openSettings = () => {
     if (isGroup) {
       nav.navigate('GroupSettings', { roomId });
+    } else if (otherMember) {
+      nav.navigate('UserProfile', { userId: otherMember.id });
     }
   };
 
@@ -716,8 +723,8 @@ export default function ChatRoomScreen() {
 
         <TouchableOpacity
           onPress={openSettings}
-          disabled={!isGroup}
-          activeOpacity={isGroup ? 0.7 : 1}
+          disabled={!isGroup && !otherMember}
+          activeOpacity={0.7}
           className="flex-row items-center flex-1"
         >
           <View className="relative mr-3">

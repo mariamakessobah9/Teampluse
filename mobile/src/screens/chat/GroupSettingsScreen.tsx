@@ -284,7 +284,11 @@ export default function GroupSettingsScreen() {
     const isMemberAdmin = item.id === room.adminId;
     const isSelf = item.id === currentUser?.id;
     return (
-      <View className="flex-row items-center px-4 py-3">
+      <TouchableOpacity
+        activeOpacity={0.7}
+        onPress={() => nav.navigate('UserProfile', { userId: item.id })}
+        className="flex-row items-center px-4 py-3"
+      >
         <View className="w-11 h-11 rounded-full bg-primary-100 dark:bg-primary-900 items-center justify-center overflow-hidden mr-3">
           {item.avatar ? (
             <Image source={{ uri: item.avatar }} className="w-11 h-11" />
@@ -342,7 +346,7 @@ export default function GroupSettingsScreen() {
             </TouchableOpacity>
           </View>
         )}
-      </View>
+      </TouchableOpacity>
     );
   };
 

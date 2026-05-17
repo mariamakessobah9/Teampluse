@@ -63,6 +63,7 @@ export type RootStackParamList = {
   NewGroup: undefined;
   ChatRoom: { roomId: string; roomName: string };
   GroupSettings: { roomId: string };
+  UserProfile: { userId: string };
 };
 
 export type MainTabParamList = {
