@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "689668473061",
+    "project_id": "teampluse-3d3a9",
+    "storage_bucket": "teampluse-3d3a9.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:689668473061:android:a7b6a206789c3939c4140c",
+        "android_client_info": {
+          "package_name": "com.kessobah.teampulse"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAuD14ah9QH7cud81sgSshruIeg_FxGFzw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

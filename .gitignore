@@ -12,3 +12,7 @@ Thumbs.db
 .vscode/
 .env*
 !.env.example
+
+# Firebase service account keys — secret, never commit
+*-firebase-adminsdk-*.json
+google-service-account*.json
