@@ -137,7 +137,7 @@ export default function CallsScreen() {
       if (selectionMode) {
         toggleSelect(item.id);
       } else {
-        nav.navigate('UserProfile', { userId: other?.id });
+        nav.navigate('CallDetail', { call: item });
       }
     };
 
