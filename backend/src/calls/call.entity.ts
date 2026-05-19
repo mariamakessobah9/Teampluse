@@ -36,6 +36,9 @@ export class Call {
   @Column({ type: 'integer', default: 0 })
   duration: number; // seconds
 
+  @Column({ type: 'simple-array', nullable: true })
+  deletedFor: string[];
+
   @CreateDateColumn()
   createdAt: Date;
 }

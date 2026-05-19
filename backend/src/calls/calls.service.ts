@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { Call } from './call.entity';
 
 export interface RecordCallInput {
@@ -30,10 +30,24 @@ export class CallsService {
   }
 
   async getHistory(userId: string): Promise<Call[]> {
-    return this.callsRepo.find({
+    const calls = await this.callsRepo.find({
       where: [{ callerId: userId }, { calleeId: userId }],
       order: { createdAt: 'DESC' },
       take: 100,
     });
+    return calls.filter((c) => !(c.deletedFor || []).includes(userId));
+  }
+
+  async deleteForUser(userId: string, ids: string[]): Promise<void> {
+    if (!Array.isArray(ids) || ids.length === 0) return;
+    const calls = await this.callsRepo.find({ where: { id: In(ids) } });
+    for (const call of calls) {
+      // Only a participant can remove a call from their own history.
+      if (call.callerId !== userId && call.calleeId !== userId) continue;
+      const deletedFor = new Set(call.deletedFor || []);
+      deletedFor.add(userId);
+      call.deletedFor = [...deletedFor];
+    }
+    await this.callsRepo.save(calls);
   }
 }
