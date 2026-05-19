@@ -28,12 +28,19 @@ export class UsersController {
   @Patch('me')
   async updateMe(
     @CurrentUser('id') currentId: string,
-    @Body() body: { name?: string; avatar?: string | null },
+    @Body()
+    body: { name?: string; avatar?: string | null; phone?: string | null },
   ) {
-    const patch: { name?: string; avatar?: string | null } = {};
+    const patch: {
+      name?: string;
+      avatar?: string | null;
+      phone?: string | null;
+    } = {};
     if (typeof body.name === 'string' && body.name.trim())
       patch.name = body.name.trim();
     if (body.avatar !== undefined) patch.avatar = body.avatar || null;
+    if (body.phone !== undefined)
+      patch.phone = body.phone ? body.phone.trim() : null;
     const updated = await this.usersService.update(currentId, patch);
     const { password, otp, otpExpiresAt, ...result } = updated;
     return result;

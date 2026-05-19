@@ -7,6 +7,8 @@ import {
   ScrollView,
   Image,
   ActivityIndicator,
+  Modal,
+  TextInput,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from 'nativewind';
@@ -31,6 +33,26 @@ export default function SettingsScreen() {
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [phoneModalOpen, setPhoneModalOpen] = useState(false);
+  const [phoneInput, setPhoneInput] = useState('');
+  const [savingPhone, setSavingPhone] = useState(false);
+
+  const openPhoneModal = () => {
+    setPhoneInput(user?.phone || '');
+    setPhoneModalOpen(true);
+  };
+
+  const handleSavePhone = async () => {
+    setSavingPhone(true);
+    try {
+      await updateProfile({ phone: phoneInput.trim() });
+      setPhoneModalOpen(false);
+    } catch (e: any) {
+      Alert.alert('Failed', e?.message || 'Please try again.');
+    } finally {
+      setSavingPhone(false);
+    }
+  };
 
   const handleChangeAvatar = async () => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -154,7 +176,11 @@ export default function SettingsScreen() {
             </View>
           </View>
           <View className="h-px bg-ink-200/40 dark:bg-slate-700/50 my-3" />
-          <View className="flex-row items-center">
+          <TouchableOpacity
+            activeOpacity={0.7}
+            onPress={openPhoneModal}
+            className="flex-row items-center"
+          >
             <View className="w-10 h-10 rounded-full bg-surface-chip dark:bg-dark-200 items-center justify-center mr-3">
               <Ionicons name="call" size={18} color={mutedIcon} />
             </View>
@@ -162,11 +188,18 @@ export default function SettingsScreen() {
               <Text className="text-ink-400 dark:text-slate-400 text-xs font-semibold tracking-wider">
                 PHONE NUMBER
               </Text>
-              <Text className="text-ink-900 dark:text-white text-base font-semibold mt-0.5">
-                Not set
+              <Text
+                className={`text-base font-semibold mt-0.5 ${
+                  user?.phone
+                    ? 'text-ink-900 dark:text-white'
+                    : 'text-ink-400 dark:text-slate-400'
+                }`}
+              >
+                {user?.phone || 'Tap to add'}
               </Text>
             </View>
-          </View>
+            <Ionicons name="pencil" size={16} color={mutedIcon} />
+          </TouchableOpacity>
         </View>
 
         {/* Action buttons */}
@@ -272,6 +305,57 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         </View>
       </ScrollView>
+
+      {/* Phone number edit modal */}
+      <Modal
+        visible={phoneModalOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPhoneModalOpen(false)}
+      >
+        <View className="flex-1 bg-black/40 items-center justify-center px-8">
+          <View className="bg-surface-card dark:bg-dark-300 rounded-2xl w-full p-5">
+            <Text className="text-ink-900 dark:text-white font-bold text-lg mb-1">
+              Phone number
+            </Text>
+            <Text className="text-ink-400 dark:text-slate-400 text-sm mb-4">
+              Add or update your phone number.
+            </Text>
+            <TextInput
+              className="bg-surface-chip dark:bg-dark-100 text-ink-900 dark:text-white rounded-2xl px-4 py-3 text-base"
+              placeholder="e.g. +225 07 00 00 00 00"
+              placeholderTextColor={isDark ? '#64748b' : '#9ca3af'}
+              value={phoneInput}
+              onChangeText={setPhoneInput}
+              keyboardType="phone-pad"
+              maxLength={25}
+              autoFocus
+            />
+            <View className="flex-row justify-end mt-5">
+              <TouchableOpacity
+                onPress={() => setPhoneModalOpen(false)}
+                className="px-4 py-2.5 mr-2"
+              >
+                <Text className="text-ink-500 dark:text-slate-300 font-semibold">
+                  Cancel
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={handleSavePhone}
+                disabled={savingPhone}
+                activeOpacity={0.85}
+                className="bg-primary-600 rounded-full px-5 py-2.5 items-center justify-center"
+              >
+                {savingPhone ? (
+                  <ActivityIndicator color="#ffffff" size="small" />
+                ) : (
+                  <Text className="text-white font-bold">Save</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }

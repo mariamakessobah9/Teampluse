@@ -18,7 +18,11 @@ interface AuthState {
   resetPassword: (email: string, otp: string, newPassword: string) => Promise<void>;
   logout: () => Promise<void>;
   loadToken: () => Promise<void>;
-  updateProfile: (payload: { name?: string; avatar?: string | null }) => Promise<User>;
+  updateProfile: (payload: {
+    name?: string;
+    avatar?: string | null;
+    phone?: string | null;
+  }) => Promise<User>;
 }
 
 const persistAuth = async (
