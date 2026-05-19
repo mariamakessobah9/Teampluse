@@ -146,6 +146,28 @@ export default function UserProfileScreen() {
 
             <View className="flex-row items-center">
               <View className="w-10 h-10 rounded-full bg-surface-chip dark:bg-dark-200 items-center justify-center mr-3">
+                <Ionicons name="call" size={18} color={mutedIcon} />
+              </View>
+              <View className="flex-1">
+                <Text className="text-ink-400 dark:text-slate-400 text-xs font-semibold tracking-wider">
+                  PHONE NUMBER
+                </Text>
+                <Text
+                  className={`text-base font-semibold mt-0.5 ${
+                    user.phone
+                      ? 'text-ink-900 dark:text-white'
+                      : 'text-ink-400 dark:text-slate-400'
+                  }`}
+                >
+                  {user.phone || 'Not provided'}
+                </Text>
+              </View>
+            </View>
+
+            <View className="h-px bg-ink-200/40 dark:bg-slate-700/50 my-3" />
+
+            <View className="flex-row items-center">
+              <View className="w-10 h-10 rounded-full bg-surface-chip dark:bg-dark-200 items-center justify-center mr-3">
                 <Ionicons name="person" size={18} color={mutedIcon} />
               </View>
               <View className="flex-1">
