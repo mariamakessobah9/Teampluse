@@ -1,11 +1,10 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
   TextInput,
   TouchableOpacity,
   FlatList,
-  Image,
   KeyboardAvoidingView,
   Platform,
   Modal,
@@ -14,6 +13,7 @@ import {
   Linking,
   Pressable,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
@@ -76,6 +76,216 @@ const guessMimeType = (uri: string, fallback: string) => {
   return fallback;
 };
 
+type MessageRowProps = {
+  message: Message;
+  isMe: boolean;
+  showAvatar: boolean;
+  isGroup: boolean;
+  isDark: boolean;
+  isPlaying: boolean;
+  onLongPress: (msg: Message) => void;
+  onImagePress: (url: string) => void;
+  onOpenDocument: (msg: Message) => void;
+  onTogglePlay: (msg: Message) => void;
+};
+
+const MessageRow = React.memo(function MessageRow({
+  message: item,
+  isMe,
+  showAvatar,
+  isGroup,
+  isDark,
+  isPlaying,
+  onLongPress,
+  onImagePress,
+  onOpenDocument,
+  onTogglePlay,
+}: MessageRowProps) {
+  const avatarUrl = item.sender?.avatar;
+
+  return (
+    <View
+      className={`px-4 mb-3 flex-row ${
+        isMe ? 'justify-end' : 'justify-start'
+      }`}
+    >
+      {!isMe && (
+        <View className="w-8 h-8 mr-2 rounded-full bg-primary-100 dark:bg-primary-900 items-end justify-end overflow-hidden self-end">
+          {showAvatar ? (
+            avatarUrl ? (
+              <Image
+                source={{ uri: avatarUrl }}
+                className="w-8 h-8 rounded-full"
+                cachePolicy="memory-disk"
+                transition={120}
+              />
+            ) : (
+              <View className="w-8 h-8 rounded-full bg-primary-200 dark:bg-primary-800 items-center justify-center">
+                <Text className="text-primary-700 dark:text-primary-200 font-bold text-xs">
+                  {(item.sender?.name || '?').charAt(0).toUpperCase()}
+                </Text>
+              </View>
+            )
+          ) : null}
+        </View>
+      )}
+      <Pressable
+        onLongPress={() => onLongPress(item)}
+        className={`max-w-[78%] rounded-2xl ${
+          item.type === 'image' && !item.deletedForEveryone
+            ? 'overflow-hidden p-1'
+            : 'px-4 py-2.5'
+        } ${
+          isMe
+            ? 'bg-primary-700 rounded-br-md'
+            : 'bg-surface-bubbleIn dark:bg-dark-100 rounded-bl-md'
+        }`}
+      >
+        {!isMe &&
+          isGroup &&
+          showAvatar &&
+          (item.type !== 'image' || item.deletedForEveryone) && (
+            <Text className="text-primary-700 dark:text-primary-300 text-xs font-bold mb-0.5">
+              {item.sender?.name || 'Unknown'}
+            </Text>
+          )}
+
+        {item.deletedForEveryone ? (
+          <View className="flex-row items-center">
+            <Ionicons
+              name="ban-outline"
+              size={15}
+              color={isMe ? '#ffffffaa' : isDark ? '#94a3b8' : '#9ca3af'}
+            />
+            <Text
+              className={`text-base italic ml-1.5 ${
+                isMe ? 'text-white/70' : 'text-ink-400 dark:text-slate-400'
+              }`}
+            >
+              This message was deleted
+            </Text>
+          </View>
+        ) : item.type === 'image' && item.fileUrl ? (
+          <Pressable
+            onPress={() => onImagePress(item.fileUrl!)}
+            onLongPress={() => onLongPress(item)}
+          >
+            <Image
+              source={{ uri: item.fileUrl }}
+              style={{ width: 220, height: 220, borderRadius: 14 }}
+              contentFit="cover"
+              cachePolicy="memory-disk"
+              transition={120}
+            />
+          </Pressable>
+        ) : item.type === 'file' && item.fileUrl ? (
+          <TouchableOpacity
+            onPress={() => onOpenDocument(item)}
+            onLongPress={() => onLongPress(item)}
+            activeOpacity={0.7}
+            className="flex-row items-center"
+          >
+            <View
+              className={`w-10 h-10 rounded-xl items-center justify-center mr-2 ${
+                isMe ? 'bg-white/20' : 'bg-primary-100 dark:bg-primary-900'
+              }`}
+            >
+              <Ionicons
+                name="document-text"
+                size={22}
+                color={isMe ? '#ffffff' : isDark ? '#86efac' : '#15803d'}
+              />
+            </View>
+            <View className="flex-shrink">
+              <Text
+                numberOfLines={1}
+                className={`font-semibold text-sm ${
+                  isMe ? 'text-white' : 'text-ink-900 dark:text-white'
+                }`}
+              >
+                {item.fileName || 'Document'}
+              </Text>
+              <Text
+                className={`text-[11px] ${
+                  isMe ? 'text-white/80' : 'text-ink-400 dark:text-slate-400'
+                }`}
+              >
+                {formatFileSize(item.fileSize)}
+              </Text>
+            </View>
+          </TouchableOpacity>
+        ) : item.type === 'voice' && item.fileUrl ? (
+          <View className="flex-row items-center">
+            <TouchableOpacity
+              onPress={() => onTogglePlay(item)}
+              onLongPress={() => onLongPress(item)}
+              activeOpacity={0.7}
+              className={`w-9 h-9 rounded-full items-center justify-center mr-2 ${
+                isMe ? 'bg-white/20' : 'bg-primary-100 dark:bg-primary-900'
+              }`}
+            >
+              <Ionicons
+                name={isPlaying ? 'pause' : 'play'}
+                size={18}
+                color={isMe ? '#ffffff' : isDark ? '#86efac' : '#15803d'}
+              />
+            </TouchableOpacity>
+            <View className="flex-row items-end mr-2" style={{ height: 18 }}>
+              {[6, 12, 8, 14, 10, 12, 7].map((h, i) => (
+                <View
+                  key={i}
+                  style={{ height: h, width: 2, marginHorizontal: 1 }}
+                  className={`rounded-full ${
+                    isMe ? 'bg-white/70' : 'bg-primary-500'
+                  }`}
+                />
+              ))}
+            </View>
+            <Text
+              className={`text-xs ${
+                isMe ? 'text-white/90' : 'text-ink-500 dark:text-slate-300'
+              }`}
+            >
+              {formatDuration(item.duration)}
+            </Text>
+          </View>
+        ) : (
+          <Text
+            className={`text-base ${
+              isMe ? 'text-white' : 'text-ink-900 dark:text-white'
+            }`}
+          >
+            {item.content}
+          </Text>
+        )}
+
+        <View
+          className={`flex-row items-center justify-end ${
+            item.type === 'image' ? 'mt-1 px-2 pb-1' : 'mt-1'
+          }`}
+        >
+          <Text
+            className={`text-[10px] ${
+              isMe ? 'text-white/80' : 'text-ink-400 dark:text-slate-400'
+            }`}
+          >
+            {formatTime(item.createdAt)}
+          </Text>
+          {isMe && !item.deletedForEveryone && (
+            <Text
+              className={`text-[10px] ml-1 ${
+                item.status === 'read' ? 'text-white' : 'text-white/70'
+              }`}
+            >
+              {item.status === 'sent' ? '✓' : '✓✓'}
+            </Text>
+          )}
+        </View>
+      </Pressable>
+    </View>
+  );
+});
+
 export default function ChatRoomScreen() {
   const route = useRoute<ChatRoomRoute>();
   const nav = useNavigation<Nav>();
@@ -115,6 +325,11 @@ export default function ChatRoomScreen() {
   const playbackRef = useRef<AudioPlayer | null>(null);
   const previewPlayerRef = useRef<AudioPlayer | null>(null);
   const [playingId, setPlayingId] = useState<string | null>(null);
+  const playingIdRef = useRef<string | null>(null);
+  const setPlaying = useCallback((id: string | null) => {
+    playingIdRef.current = id;
+    setPlayingId(id);
+  }, []);
 
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const headerAccent = isDark ? '#86efac' : '#15803d';
@@ -165,14 +380,6 @@ export default function ChatRoomScreen() {
       leaveRoom(roomId);
     };
   }, [roomId]);
-
-  useEffect(() => {
-    if (messages.length > 0) {
-      setTimeout(() => {
-        flatListRef.current?.scrollToEnd({ animated: true });
-      }, 100);
-    }
-  }, [messages.length]);
 
   const handleChangeText = (next: string) => {
     setText(next);
@@ -404,14 +611,14 @@ export default function ChatRoomScreen() {
     }
   };
 
-  const togglePlay = (msg: Message) => {
+  const togglePlay = useCallback((msg: Message) => {
     if (!msg.fileUrl) return;
     try {
-      if (playingId === msg.id && playbackRef.current) {
+      if (playingIdRef.current === msg.id && playbackRef.current) {
         playbackRef.current.pause();
         playbackRef.current.remove();
         playbackRef.current = null;
-        setPlayingId(null);
+        setPlaying(null);
         return;
       }
       if (playbackRef.current) {
@@ -420,28 +627,28 @@ export default function ChatRoomScreen() {
       }
       const player = createAudioPlayer({ uri: msg.fileUrl }, { updateInterval: 200 });
       playbackRef.current = player;
-      setPlayingId(msg.id);
+      setPlaying(msg.id);
       player.addListener('playbackStatusUpdate', (status) => {
         if (status.didJustFinish) {
           player.remove();
           if (playbackRef.current === player) playbackRef.current = null;
-          setPlayingId(null);
+          setPlaying(null);
         }
       });
       player.play();
     } catch (e: any) {
       Alert.alert('Playback failed', e?.message || 'Please try again.');
     }
-  };
+  }, [setPlaying]);
 
-  const openDocument = (msg: Message) => {
+  const openDocument = useCallback((msg: Message) => {
     if (!msg.fileUrl) return;
     Linking.openURL(msg.fileUrl).catch(() => {
       Alert.alert('Cannot open this file');
     });
-  };
+  }, []);
 
-  const handleMessageLongPress = (msg: Message) => {
+  const handleMessageLongPress = useCallback((msg: Message) => {
     if (msg.deletedForEveryone) return;
     const isMine = msg.senderId === currentUser?.id;
     const buttons: any[] = [];
@@ -465,7 +672,7 @@ export default function ChatRoomScreen() {
     });
     buttons.push({ text: 'Cancel', style: 'cancel' });
     Alert.alert('Delete message', undefined, buttons);
-  };
+  }, [currentUser?.id, roomId, deleteMessageForEveryone, deleteMessageForMe]);
 
   const handleStartCall = async (type: 'audio' | 'video') => {
     if (!otherMember) return;
@@ -504,190 +711,37 @@ export default function ChatRoomScreen() {
     };
   }, []);
 
-  const renderMessage = ({ item, index }: { item: Message; index: number }) => {
-    const isMe = item.senderId === currentUser?.id;
-    const prev = messages[index - 1];
-    const showAvatar = !isMe && (!prev || prev.senderId !== item.senderId);
-    const avatarUrl = item.sender?.avatar;
-
-    return (
-      <View
-        className={`px-4 mb-3 flex-row ${
-          isMe ? 'justify-end' : 'justify-start'
-        }`}
-      >
-        {!isMe && (
-          <View className="w-8 h-8 mr-2 rounded-full bg-primary-100 dark:bg-primary-900 items-end justify-end overflow-hidden self-end">
-            {showAvatar ? (
-              avatarUrl ? (
-                <Image
-                  source={{ uri: avatarUrl }}
-                  className="w-8 h-8 rounded-full"
-                />
-              ) : (
-                <View className="w-8 h-8 rounded-full bg-primary-200 dark:bg-primary-800 items-center justify-center">
-                  <Text className="text-primary-700 dark:text-primary-200 font-bold text-xs">
-                    {(item.sender?.name || '?').charAt(0).toUpperCase()}
-                  </Text>
-                </View>
-              )
-            ) : null}
-          </View>
-        )}
-        <Pressable
-          onLongPress={() => handleMessageLongPress(item)}
-          className={`max-w-[78%] rounded-2xl ${
-            item.type === 'image' && !item.deletedForEveryone
-              ? 'overflow-hidden p-1'
-              : 'px-4 py-2.5'
-          } ${
-            isMe
-              ? 'bg-primary-700 rounded-br-md'
-              : 'bg-surface-bubbleIn dark:bg-dark-100 rounded-bl-md'
-          }`}
-        >
-          {!isMe &&
-            isGroup &&
-            showAvatar &&
-            (item.type !== 'image' || item.deletedForEveryone) && (
-              <Text className="text-primary-700 dark:text-primary-300 text-xs font-bold mb-0.5">
-                {item.sender?.name || 'Unknown'}
-              </Text>
-            )}
-
-          {item.deletedForEveryone ? (
-            <View className="flex-row items-center">
-              <Ionicons
-                name="ban-outline"
-                size={15}
-                color={isMe ? '#ffffffaa' : isDark ? '#94a3b8' : '#9ca3af'}
-              />
-              <Text
-                className={`text-base italic ml-1.5 ${
-                  isMe ? 'text-white/70' : 'text-ink-400 dark:text-slate-400'
-                }`}
-              >
-                This message was deleted
-              </Text>
-            </View>
-          ) : item.type === 'image' && item.fileUrl ? (
-            <Pressable
-              onPress={() => setFullscreenUrl(item.fileUrl!)}
-              onLongPress={() => handleMessageLongPress(item)}
-            >
-              <Image
-                source={{ uri: item.fileUrl }}
-                style={{ width: 220, height: 220, borderRadius: 14 }}
-                resizeMode="cover"
-              />
-            </Pressable>
-          ) : item.type === 'file' && item.fileUrl ? (
-            <TouchableOpacity
-              onPress={() => openDocument(item)}
-              onLongPress={() => handleMessageLongPress(item)}
-              activeOpacity={0.7}
-              className="flex-row items-center"
-            >
-              <View
-                className={`w-10 h-10 rounded-xl items-center justify-center mr-2 ${
-                  isMe ? 'bg-white/20' : 'bg-primary-100 dark:bg-primary-900'
-                }`}
-              >
-                <Ionicons
-                  name="document-text"
-                  size={22}
-                  color={isMe ? '#ffffff' : isDark ? '#86efac' : '#15803d'}
-                />
-              </View>
-              <View className="flex-shrink">
-                <Text
-                  numberOfLines={1}
-                  className={`font-semibold text-sm ${
-                    isMe ? 'text-white' : 'text-ink-900 dark:text-white'
-                  }`}
-                >
-                  {item.fileName || 'Document'}
-                </Text>
-                <Text
-                  className={`text-[11px] ${
-                    isMe ? 'text-white/80' : 'text-ink-400 dark:text-slate-400'
-                  }`}
-                >
-                  {formatFileSize(item.fileSize)}
-                </Text>
-              </View>
-            </TouchableOpacity>
-          ) : item.type === 'voice' && item.fileUrl ? (
-            <View className="flex-row items-center">
-              <TouchableOpacity
-                onPress={() => togglePlay(item)}
-                onLongPress={() => handleMessageLongPress(item)}
-                activeOpacity={0.7}
-                className={`w-9 h-9 rounded-full items-center justify-center mr-2 ${
-                  isMe ? 'bg-white/20' : 'bg-primary-100 dark:bg-primary-900'
-                }`}
-              >
-                <Ionicons
-                  name={playingId === item.id ? 'pause' : 'play'}
-                  size={18}
-                  color={isMe ? '#ffffff' : isDark ? '#86efac' : '#15803d'}
-                />
-              </TouchableOpacity>
-              <View className="flex-row items-end mr-2" style={{ height: 18 }}>
-                {[6, 12, 8, 14, 10, 12, 7].map((h, i) => (
-                  <View
-                    key={i}
-                    style={{ height: h, width: 2, marginHorizontal: 1 }}
-                    className={`rounded-full ${
-                      isMe ? 'bg-white/70' : 'bg-primary-500'
-                    }`}
-                  />
-                ))}
-              </View>
-              <Text
-                className={`text-xs ${
-                  isMe ? 'text-white/90' : 'text-ink-500 dark:text-slate-300'
-                }`}
-              >
-                {formatDuration(item.duration)}
-              </Text>
-            </View>
-          ) : (
-            <Text
-              className={`text-base ${
-                isMe ? 'text-white' : 'text-ink-900 dark:text-white'
-              }`}
-            >
-              {item.content}
-            </Text>
-          )}
-
-          <View
-            className={`flex-row items-center justify-end ${
-              item.type === 'image' ? 'mt-1 px-2 pb-1' : 'mt-1'
-            }`}
-          >
-            <Text
-              className={`text-[10px] ${
-                isMe ? 'text-white/80' : 'text-ink-400 dark:text-slate-400'
-              }`}
-            >
-              {formatTime(item.createdAt)}
-            </Text>
-            {isMe && !item.deletedForEveryone && (
-              <Text
-                className={`text-[10px] ml-1 ${
-                  item.status === 'read' ? 'text-white' : 'text-white/70'
-                }`}
-              >
-                {item.status === 'sent' ? '✓' : '✓✓'}
-              </Text>
-            )}
-          </View>
-        </Pressable>
-      </View>
-    );
-  };
+  const renderItem = useCallback(
+    ({ item, index }: { item: Message; index: number }) => {
+      const isMe = item.senderId === currentUser?.id;
+      const prev = messages[index - 1];
+      const showAvatar = !isMe && (!prev || prev.senderId !== item.senderId);
+      return (
+        <MessageRow
+          message={item}
+          isMe={isMe}
+          showAvatar={showAvatar}
+          isGroup={isGroup}
+          isDark={isDark}
+          isPlaying={playingId === item.id}
+          onLongPress={handleMessageLongPress}
+          onImagePress={setFullscreenUrl}
+          onOpenDocument={openDocument}
+          onTogglePlay={togglePlay}
+        />
+      );
+    },
+    [
+      currentUser?.id,
+      messages,
+      isGroup,
+      isDark,
+      playingId,
+      handleMessageLongPress,
+      openDocument,
+      togglePlay,
+    ],
+  );
 
   const presenceLabel = otherMember
     ? otherMember.isOnline
@@ -735,6 +789,8 @@ export default function ChatRoomScreen() {
                     uri: (isGroup ? room?.avatar : otherMember?.avatar) as string,
                   }}
                   className="w-10 h-10 rounded-full"
+                  cachePolicy="memory-disk"
+                  transition={120}
                 />
               ) : (
                 <Text className="text-primary-700 dark:text-primary-200 font-bold">
@@ -815,8 +871,12 @@ export default function ChatRoomScreen() {
         ref={flatListRef}
         data={messages}
         keyExtractor={(item) => item.id}
-        renderItem={renderMessage}
+        renderItem={renderItem}
         contentContainerStyle={{ paddingVertical: 4, paddingBottom: 12 }}
+        initialNumToRender={15}
+        maxToRenderPerBatch={10}
+        windowSize={11}
+        removeClippedSubviews={true}
         onContentSizeChange={() =>
           flatListRef.current?.scrollToEnd({ animated: false })
         }
@@ -1026,7 +1086,9 @@ export default function ChatRoomScreen() {
             <Image
               source={{ uri: fullscreenUrl }}
               style={{ width: '100%', height: '100%' }}
-              resizeMode="contain"
+              contentFit="contain"
+              cachePolicy="memory-disk"
+              transition={120}
             />
           )}
           <TouchableOpacity

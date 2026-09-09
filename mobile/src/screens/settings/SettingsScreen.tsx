@@ -5,11 +5,11 @@ import {
   TouchableOpacity,
   Alert,
   ScrollView,
-  Image,
   ActivityIndicator,
   Modal,
   TextInput,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from 'nativewind';
 import * as ImagePicker from 'expo-image-picker';
@@ -133,6 +133,8 @@ export default function SettingsScreen() {
                   <Image
                     source={{ uri: user.avatar }}
                     className="w-28 h-28 rounded-full"
+                    cachePolicy="memory-disk"
+                    transition={120}
                   />
                 ) : (
                   <Text className="text-primary-700 dark:text-primary-300 text-3xl font-bold">

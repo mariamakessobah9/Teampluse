@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -6,8 +6,8 @@ import {
   FlatList,
   TouchableOpacity,
   ActivityIndicator,
-  Image,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
@@ -17,6 +17,56 @@ import { useChatStore } from '../../store/useChatStore';
 import { RootStackParamList, User } from '../../types';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
+
+const UserRow = React.memo(function UserRow({
+  item,
+  busy,
+  onPress,
+}: {
+  item: User;
+  busy: boolean;
+  onPress: (user: User) => void;
+}) {
+  return (
+    <TouchableOpacity
+      className="flex-row items-center px-4 py-3"
+      activeOpacity={0.7}
+      onPress={() => onPress(item)}
+      disabled={busy}
+    >
+      <View className="relative mr-3">
+        <View className="w-12 h-12 rounded-2xl bg-primary-100 dark:bg-primary-900 items-center justify-center overflow-hidden">
+          {item.avatar ? (
+            <Image
+              source={{ uri: item.avatar }}
+              className="w-12 h-12"
+              cachePolicy="memory-disk"
+              transition={120}
+            />
+          ) : (
+            <Text className="text-primary-700 dark:text-primary-300 text-lg font-bold">
+              {item.name.charAt(0).toUpperCase()}
+            </Text>
+          )}
+        </View>
+        <View
+          className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-surface-page dark:border-dark-200 ${
+            item.isOnline ? 'bg-primary-500' : 'bg-ink-300 dark:bg-slate-600'
+          }`}
+        />
+      </View>
+      <View className="flex-1">
+        <Text className="text-ink-900 dark:text-white font-semibold text-base">
+          {item.name}
+        </Text>
+        <Text className="text-ink-400 dark:text-slate-400 text-sm">
+          {item.email}
+        </Text>
+      </View>
+      {busy && <ActivityIndicator color="#16a34a" />}
+    </TouchableOpacity>
+  );
+});
 
 export default function NewChatScreen() {
   const nav = useNavigation<Nav>();
@@ -49,15 +99,25 @@ export default function NewChatScreen() {
     return () => clearTimeout(id);
   }, [query]);
 
-  const handleStart = async (user: User) => {
-    setStarting(user.id);
-    try {
-      const room = await createDirectRoom(user.id);
-      nav.replace('ChatRoom', { roomId: room.id, roomName: user.name });
-    } catch {
-      setStarting(null);
-    }
-  };
+  const handleStart = useCallback(
+    async (user: User) => {
+      setStarting(user.id);
+      try {
+        const room = await createDirectRoom(user.id);
+        nav.replace('ChatRoom', { roomId: room.id, roomName: user.name });
+      } catch {
+        setStarting(null);
+      }
+    },
+    [createDirectRoom, nav],
+  );
+
+  const renderUser = useCallback(
+    ({ item }: { item: User }) => (
+      <UserRow item={item} busy={starting === item.id} onPress={handleStart} />
+    ),
+    [starting, handleStart],
+  );
 
   return (
     <View className="flex-1 bg-surface-page dark:bg-dark-200">
@@ -127,45 +187,11 @@ export default function NewChatScreen() {
           ItemSeparatorComponent={() => (
             <View className="h-px bg-ink-200/40 dark:bg-slate-700/50 mx-4" />
           )}
-          renderItem={({ item }) => (
-            <TouchableOpacity
-              className="flex-row items-center px-4 py-3"
-              activeOpacity={0.7}
-              onPress={() => handleStart(item)}
-              disabled={starting === item.id}
-            >
-              <View className="relative mr-3">
-                <View className="w-12 h-12 rounded-2xl bg-primary-100 dark:bg-primary-900 items-center justify-center overflow-hidden">
-                  {item.avatar ? (
-                    <Image
-                      source={{ uri: item.avatar }}
-                      className="w-12 h-12"
-                    />
-                  ) : (
-                    <Text className="text-primary-700 dark:text-primary-300 text-lg font-bold">
-                      {item.name.charAt(0).toUpperCase()}
-                    </Text>
-                  )}
-                </View>
-                <View
-                  className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-surface-page dark:border-dark-200 ${
-                    item.isOnline ? 'bg-primary-500' : 'bg-ink-300 dark:bg-slate-600'
-                  }`}
-                />
-              </View>
-              <View className="flex-1">
-                <Text className="text-ink-900 dark:text-white font-semibold text-base">
-                  {item.name}
-                </Text>
-                <Text className="text-ink-400 dark:text-slate-400 text-sm">
-                  {item.email}
-                </Text>
-              </View>
-              {starting === item.id && (
-                <ActivityIndicator color="#16a34a" />
-              )}
-            </TouchableOpacity>
-          )}
+          renderItem={renderUser}
+          initialNumToRender={12}
+          maxToRenderPerBatch={10}
+          windowSize={11}
+          removeClippedSubviews={true}
           ListEmptyComponent={
             query.trim().length < 2 ? (
               <Text className="text-ink-400 dark:text-slate-400 text-center mt-8">

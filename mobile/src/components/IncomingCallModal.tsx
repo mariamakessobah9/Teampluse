@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, Image, Modal } from 'react-native';
+import { View, Text, TouchableOpacity, Modal } from 'react-native';
+import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useCallStore } from '../store/useCallStore';
 import { callManager } from '../services/callManager';
@@ -20,7 +21,12 @@ export default function IncomingCallModal() {
           </Text>
           <View className="w-32 h-32 rounded-full bg-primary-700 items-center justify-center overflow-hidden mb-5">
             {peer?.avatar ? (
-              <Image source={{ uri: peer.avatar }} className="w-32 h-32" />
+              <Image
+                source={{ uri: peer.avatar }}
+                className="w-32 h-32"
+                cachePolicy="memory-disk"
+                transition={120}
+              />
             ) : (
               <Text className="text-white text-5xl font-bold">
                 {(peer?.name || '?').charAt(0).toUpperCase()}

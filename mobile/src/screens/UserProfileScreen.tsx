@@ -3,10 +3,10 @@ import {
   View,
   Text,
   TouchableOpacity,
-  Image,
   ScrollView,
   ActivityIndicator,
 } from 'react-native';
+import { Image } from 'expo-image';
 import {
   useRoute,
   useNavigation,
@@ -97,6 +97,8 @@ export default function UserProfileScreen() {
                   <Image
                     source={{ uri: user.avatar }}
                     className="w-28 h-28 rounded-full"
+                    cachePolicy="memory-disk"
+                    transition={120}
                   />
                 ) : (
                   <Text className="text-primary-700 dark:text-primary-300 text-3xl font-bold">

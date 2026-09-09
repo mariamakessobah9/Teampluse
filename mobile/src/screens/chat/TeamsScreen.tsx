@@ -1,11 +1,11 @@
-import React, { useEffect } from 'react';
+import React, { useCallback, useEffect } from 'react';
 import {
   View,
   Text,
   FlatList,
   TouchableOpacity,
-  Image,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
@@ -32,34 +32,27 @@ const formatTime = (dateStr?: string) => {
   return date.toLocaleDateString();
 };
 
-export default function TeamsScreen() {
-  const rooms = useChatStore((s) => s.rooms);
-  const fetchRooms = useChatStore((s) => s.fetchRooms);
-  const nav = useNavigation<Nav>();
-  const { colorScheme } = useColorScheme();
-  const isDark = colorScheme === 'dark';
-  const headerAccent = isDark ? '#86efac' : '#15803d';
-
-  useEffect(() => {
-    fetchRooms();
-  }, []);
-
-  const groups = rooms.filter((r) => r.type === 'group');
-
-  const renderRoom = ({ item }: { item: ChatRoom }) => (
+const GroupRow = React.memo(function GroupRow({
+  item,
+  onPress,
+}: {
+  item: ChatRoom;
+  onPress: (room: ChatRoom) => void;
+}) {
+  return (
     <TouchableOpacity
       className="flex-row items-center px-4 py-3"
       activeOpacity={0.7}
-      onPress={() =>
-        nav.navigate('ChatRoom', {
-          roomId: item.id,
-          roomName: item.name || 'Group',
-        })
-      }
+      onPress={() => onPress(item)}
     >
       <View className="w-12 h-12 rounded-2xl bg-primary-100 dark:bg-primary-900 items-center justify-center overflow-hidden mr-3">
         {item.avatar ? (
-          <Image source={{ uri: item.avatar }} className="w-12 h-12" />
+          <Image
+            source={{ uri: item.avatar }}
+            className="w-12 h-12"
+            cachePolicy="memory-disk"
+            transition={120}
+          />
         ) : (
           <Text className="text-primary-700 dark:text-primary-300 text-lg font-bold">
             {(item.name || 'G').charAt(0).toUpperCase()}
@@ -100,6 +93,37 @@ export default function TeamsScreen() {
       </View>
     </TouchableOpacity>
   );
+});
+
+export default function TeamsScreen() {
+  const rooms = useChatStore((s) => s.rooms);
+  const fetchRooms = useChatStore((s) => s.fetchRooms);
+  const nav = useNavigation<Nav>();
+  const { colorScheme } = useColorScheme();
+  const isDark = colorScheme === 'dark';
+  const headerAccent = isDark ? '#86efac' : '#15803d';
+
+  useEffect(() => {
+    fetchRooms();
+  }, []);
+
+  const groups = rooms.filter((r) => r.type === 'group');
+
+  const openRoom = useCallback(
+    (room: ChatRoom) =>
+      nav.navigate('ChatRoom', {
+        roomId: room.id,
+        roomName: room.name || 'Group',
+      }),
+    [nav],
+  );
+
+  const renderRoom = useCallback(
+    ({ item }: { item: ChatRoom }) => (
+      <GroupRow item={item} onPress={openRoom} />
+    ),
+    [openRoom],
+  );
 
   return (
     <View className="flex-1 bg-surface-page dark:bg-dark-200">
@@ -128,6 +152,10 @@ export default function TeamsScreen() {
           <View className="h-px bg-ink-200/40 dark:bg-slate-700/50 mx-4" />
         )}
         contentContainerStyle={{ paddingTop: 8, paddingBottom: 96 }}
+        initialNumToRender={12}
+        maxToRenderPerBatch={10}
+        windowSize={11}
+        removeClippedSubviews={true}
         ListEmptyComponent={
           <View className="items-center justify-center pt-16 px-8">
             <View className="w-16 h-16 rounded-3xl bg-primary-100 dark:bg-primary-900 items-center justify-center mb-4">

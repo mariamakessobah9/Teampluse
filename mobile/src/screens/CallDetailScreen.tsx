@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, Image, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView } from 'react-native';
+import { Image } from 'expo-image';
 import {
   useRoute,
   useNavigation,
@@ -123,7 +124,12 @@ export default function CallDetailScreen() {
         <View className="items-center mt-6 mb-4">
           <View className="w-24 h-24 rounded-full border-[3px] border-primary-500 items-center justify-center bg-primary-100 dark:bg-primary-900 overflow-hidden">
             {other?.avatar ? (
-              <Image source={{ uri: other.avatar }} className="w-24 h-24" />
+              <Image
+                source={{ uri: other.avatar }}
+                className="w-24 h-24"
+                cachePolicy="memory-disk"
+                transition={120}
+              />
             ) : (
               <Text className="text-primary-700 dark:text-primary-300 text-3xl font-bold">
                 {(other?.name || '?').charAt(0).toUpperCase()}

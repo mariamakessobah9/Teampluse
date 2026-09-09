@@ -1,25 +1,151 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
   FlatList,
   TouchableOpacity,
-  Image,
   ScrollView,
   Alert,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from 'nativewind';
 import { useChatStore } from '../../store/useChatStore';
 import { useAuthStore } from '../../store/useAuthStore';
-import { ChatRoom, RootStackParamList } from '../../types';
+import { ChatRoom, RootStackParamList, User } from '../../types';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 
 const FILTERS = ['All', 'Direct', 'Teams'] as const;
 type Filter = (typeof FILTERS)[number];
+
+const getRoomDisplayName = (room: ChatRoom, currentUser?: User | null) => {
+  if (room.type === 'group') return room.name || 'Group';
+  const other = room.members?.find((m) => m.id !== currentUser?.id);
+  return other?.name || 'Chat';
+};
+
+const getRoomAvatar = (room: ChatRoom, currentUser?: User | null) => {
+  if (room.avatar) return room.avatar;
+  if (room.type === 'direct') {
+    const other = room.members?.find((m) => m.id !== currentUser?.id);
+    return other?.avatar;
+  }
+  return null;
+};
+
+const isOtherOnline = (room: ChatRoom, currentUser?: User | null) => {
+  if (room.type !== 'direct') return false;
+  const other = room.members?.find((m) => m.id !== currentUser?.id);
+  return Boolean(other?.isOnline);
+};
+
+const formatTime = (dateStr?: string) => {
+  if (!dateStr) return '';
+  const date = new Date(dateStr);
+  const now = new Date();
+  const diffDays = Math.floor(
+    (now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24),
+  );
+  if (diffDays === 0) {
+    return date.toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  }
+  if (diffDays === 1) return 'Yesterday';
+  return date.toLocaleDateString();
+};
+
+const lastMessageText = (room: ChatRoom) => {
+  const m = room.lastMessage;
+  if (!m) return 'No messages yet';
+  let preview = m.content;
+  if (m.type === 'image') preview = '📷 Photo';
+  else if (m.type === 'file') preview = `📎 ${m.fileName || 'Document'}`;
+  else if (m.type === 'voice') preview = '🎤 Voice message';
+  const first = m.sender?.name?.split(' ')[0];
+  return room.type === 'group' && first ? `${first}: ${preview}` : preview;
+};
+
+const RoomRow = React.memo(function RoomRow({
+  item,
+  currentUser,
+  onPress,
+  onLongPress,
+}: {
+  item: ChatRoom;
+  currentUser?: User | null;
+  onPress: (room: ChatRoom) => void;
+  onLongPress: (room: ChatRoom) => void;
+}) {
+  const avatar = getRoomAvatar(item, currentUser);
+  return (
+    <TouchableOpacity
+      className="flex-row items-center px-4 py-3"
+      activeOpacity={0.7}
+      onLongPress={() => onLongPress(item)}
+      onPress={() => onPress(item)}
+    >
+      <View className="mr-3">
+        <View className="w-12 h-12 rounded-2xl bg-primary-100 dark:bg-primary-900 items-center justify-center overflow-hidden">
+          {avatar ? (
+            <Image
+              source={{ uri: avatar }}
+              className="w-12 h-12"
+              cachePolicy="memory-disk"
+              transition={120}
+            />
+          ) : (
+            <Text className="text-primary-700 dark:text-primary-300 text-lg font-bold">
+              {getRoomDisplayName(item, currentUser).charAt(0).toUpperCase()}
+            </Text>
+          )}
+        </View>
+        {item.type === 'direct' && (
+          <View
+            className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-surface-page dark:border-dark-200 ${
+              isOtherOnline(item, currentUser)
+                ? 'bg-primary-500'
+                : 'bg-ink-300 dark:bg-slate-600'
+            }`}
+          />
+        )}
+      </View>
+
+      <View className="flex-1">
+        <View className="flex-row justify-between items-center">
+          <Text
+            className="text-ink-900 dark:text-white font-semibold text-base flex-1 mr-2"
+            numberOfLines={1}
+          >
+            {getRoomDisplayName(item, currentUser)}
+          </Text>
+          <Text className="text-ink-400 dark:text-slate-400 text-xs">
+            {formatTime(item.lastMessage?.createdAt || item.updatedAt)}
+          </Text>
+        </View>
+        <View className="flex-row justify-between items-center mt-1">
+          <Text
+            className="text-ink-400 dark:text-slate-400 text-sm flex-1 mr-2"
+            numberOfLines={1}
+          >
+            {lastMessageText(item)}
+          </Text>
+          {(item.unreadCount ?? 0) > 0 && (
+            <View className="bg-primary-500 rounded-full min-w-[20px] h-5 px-1.5 items-center justify-center">
+              <Text className="text-white text-xs font-bold">
+                {item.unreadCount}
+              </Text>
+            </View>
+          )}
+        </View>
+      </View>
+    </TouchableOpacity>
+  );
+});
 
 export default function ChatsScreen() {
   const rooms = useChatStore((s) => s.rooms);
@@ -37,70 +163,27 @@ export default function ChatsScreen() {
     fetchRooms();
   }, []);
 
-  const getRoomDisplayName = (room: ChatRoom) => {
-    if (room.type === 'group') return room.name || 'Group';
-    const other = room.members?.find((m) => m.id !== currentUser?.id);
-    return other?.name || 'Chat';
-  };
+  const openRoom = useCallback(
+    (room: ChatRoom) =>
+      nav.navigate('ChatRoom', {
+        roomId: room.id,
+        roomName: getRoomDisplayName(room, currentUser),
+      }),
+    [nav, currentUser],
+  );
 
-  const getRoomAvatar = (room: ChatRoom) => {
-    if (room.avatar) return room.avatar;
-    if (room.type === 'direct') {
-      const other = room.members?.find((m) => m.id !== currentUser?.id);
-      return other?.avatar;
-    }
-    return null;
-  };
-
-  const isOtherOnline = (room: ChatRoom) => {
-    if (room.type !== 'direct') return false;
-    const other = room.members?.find((m) => m.id !== currentUser?.id);
-    return Boolean(other?.isOnline);
-  };
-
-  const formatTime = (dateStr?: string) => {
-    if (!dateStr) return '';
-    const date = new Date(dateStr);
-    const now = new Date();
-    const diffDays = Math.floor(
-      (now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24),
-    );
-    if (diffDays === 0) {
-      return date.toLocaleTimeString([], {
-        hour: '2-digit',
-        minute: '2-digit',
-      });
-    }
-    if (diffDays === 1) return 'Yesterday';
-    return date.toLocaleDateString();
-  };
-
-  const lastMessageText = (room: ChatRoom) => {
-    const m = room.lastMessage;
-    if (!m) return 'No messages yet';
-    let preview = m.content;
-    if (m.type === 'image') preview = '📷 Photo';
-    else if (m.type === 'file') preview = `📎 ${m.fileName || 'Document'}`;
-    else if (m.type === 'voice') preview = '🎤 Voice message';
-    const first = m.sender?.name?.split(' ')[0];
-    return room.type === 'group' && first ? `${first}: ${preview}` : preview;
-  };
-
-  const openRoom = (room: ChatRoom) =>
-    nav.navigate('ChatRoom', {
-      roomId: room.id,
-      roomName: getRoomDisplayName(room),
-    });
-
-  const handleTogglePin = (room: ChatRoom) => {
-    const name = getRoomDisplayName(room);
-    Alert.alert(name, undefined, [
-      { text: 'Cancel', style: 'cancel' },
-      room.isPinned
-        ? { text: 'Unpin conversation', onPress: () => unpinRoom(room.id) }
-        : { text: 'Pin conversation', onPress: () => pinRoom(room.id) },
-    ]);
-  };
+  const handleTogglePin = useCallback(
+    (room: ChatRoom) => {
+      const name = getRoomDisplayName(room, currentUser);
+      Alert.alert(name, undefined, [
+        { text: 'Cancel', style: 'cancel' },
+        room.isPinned
+          ? { text: 'Unpin conversation', onPress: () => unpinRoom(room.id) }
+          : { text: 'Pin conversation', onPress: () => pinRoom(room.id) },
+      ]);
+    },
+    [currentUser, pinRoom, unpinRoom],
+  );
 
   const filteredRooms = rooms.filter((r) => {
     if (filter === 'Direct') return r.type === 'direct';
@@ -127,7 +210,12 @@ export default function ChatsScreen() {
             }`}
           >
             {m.avatar ? (
-              <Image source={{ uri: m.avatar }} className="w-9 h-9" />
+              <Image
+                source={{ uri: m.avatar }}
+                className="w-9 h-9"
+                cachePolicy="memory-disk"
+                transition={120}
+              />
             ) : (
               <Text className="text-primary-800 dark:text-primary-100 font-bold text-xs">
                 {m.name.charAt(0).toUpperCase()}
@@ -161,7 +249,7 @@ export default function ChatsScreen() {
         className="text-ink-900 dark:text-white font-bold text-base mt-3"
         numberOfLines={1}
       >
-        {getRoomDisplayName(room)}
+        {getRoomDisplayName(room, currentUser)}
       </Text>
       <Text
         className="text-ink-400 dark:text-slate-400 text-sm mt-1"
@@ -172,69 +260,16 @@ export default function ChatsScreen() {
     </TouchableOpacity>
   );
 
-  const renderRoom = ({ item }: { item: ChatRoom }) => (
-    <TouchableOpacity
-      className="flex-row items-center px-4 py-3"
-      activeOpacity={0.7}
-      onLongPress={() => handleTogglePin(item)}
-      onPress={() =>
-        nav.navigate('ChatRoom', {
-          roomId: item.id,
-          roomName: getRoomDisplayName(item),
-        })
-      }
-    >
-      <View className="mr-3">
-        <View className="w-12 h-12 rounded-2xl bg-primary-100 dark:bg-primary-900 items-center justify-center overflow-hidden">
-          {getRoomAvatar(item) ? (
-            <Image
-              source={{ uri: getRoomAvatar(item)! }}
-              className="w-12 h-12"
-            />
-          ) : (
-            <Text className="text-primary-700 dark:text-primary-300 text-lg font-bold">
-              {getRoomDisplayName(item).charAt(0).toUpperCase()}
-            </Text>
-          )}
-        </View>
-        {item.type === 'direct' && (
-          <View
-            className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-surface-page dark:border-dark-200 ${
-              isOtherOnline(item) ? 'bg-primary-500' : 'bg-ink-300 dark:bg-slate-600'
-            }`}
-          />
-        )}
-      </View>
-
-      <View className="flex-1">
-        <View className="flex-row justify-between items-center">
-          <Text
-            className="text-ink-900 dark:text-white font-semibold text-base flex-1 mr-2"
-            numberOfLines={1}
-          >
-            {getRoomDisplayName(item)}
-          </Text>
-          <Text className="text-ink-400 dark:text-slate-400 text-xs">
-            {formatTime(item.lastMessage?.createdAt || item.updatedAt)}
-          </Text>
-        </View>
-        <View className="flex-row justify-between items-center mt-1">
-          <Text
-            className="text-ink-400 dark:text-slate-400 text-sm flex-1 mr-2"
-            numberOfLines={1}
-          >
-            {lastMessageText(item)}
-          </Text>
-          {(item.unreadCount ?? 0) > 0 && (
-            <View className="bg-primary-500 rounded-full min-w-[20px] h-5 px-1.5 items-center justify-center">
-              <Text className="text-white text-xs font-bold">
-                {item.unreadCount}
-              </Text>
-            </View>
-          )}
-        </View>
-      </View>
-    </TouchableOpacity>
+  const renderRoom = useCallback(
+    ({ item }: { item: ChatRoom }) => (
+      <RoomRow
+        item={item}
+        currentUser={currentUser}
+        onPress={openRoom}
+        onLongPress={handleTogglePin}
+      />
+    ),
+    [currentUser, openRoom, handleTogglePin],
   );
 
   const ListHeader = (
@@ -322,6 +357,10 @@ export default function ChatsScreen() {
           <View className="h-px bg-ink-200/40 dark:bg-slate-700/50 mx-4" />
         )}
         contentContainerStyle={{ paddingBottom: 96 }}
+        initialNumToRender={12}
+        maxToRenderPerBatch={10}
+        windowSize={11}
+        removeClippedSubviews={true}
         ListEmptyComponent={
           pinnedRooms.length === 0 ? (
             <View className="items-center justify-center pt-8 px-8">

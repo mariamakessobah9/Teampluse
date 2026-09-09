@@ -6,10 +6,10 @@ import {
   FlatList,
   TouchableOpacity,
   ActivityIndicator,
-  Image,
   ScrollView,
   Alert,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
@@ -220,7 +220,12 @@ export default function NewGroupScreen() {
               >
                 <View className="w-12 h-12 rounded-2xl bg-primary-100 dark:bg-primary-900 items-center justify-center overflow-hidden mr-3">
                   {item.avatar ? (
-                    <Image source={{ uri: item.avatar }} className="w-12 h-12" />
+                    <Image
+                      source={{ uri: item.avatar }}
+                      className="w-12 h-12"
+                      cachePolicy="memory-disk"
+                      transition={120}
+                    />
                   ) : (
                     <Text className="text-primary-700 dark:text-primary-300 text-lg font-bold">
                       {item.name.charAt(0).toUpperCase()}
