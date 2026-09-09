@@ -5,11 +5,16 @@ import {
   CreateDateColumn,
   ManyToOne,
   JoinColumn,
+  Index,
 } from 'typeorm';
 import { User } from '../../users/user.entity';
 import { ChatRoom } from './chat-room.entity';
 
 @Entity('messages')
+// Room message list + last-message lookup (ORDER BY createdAt within a room)
+@Index(['chatRoomId', 'createdAt'])
+// Unread count + markMessagesAsRead (filter by room + status)
+@Index(['chatRoomId', 'status'])
 export class Message {
   @PrimaryGeneratedColumn('uuid')
   id: string;

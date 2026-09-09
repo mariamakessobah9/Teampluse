@@ -5,10 +5,14 @@ import {
   CreateDateColumn,
   ManyToOne,
   JoinColumn,
+  Index,
 } from 'typeorm';
 import { User } from '../users/user.entity';
 
 @Entity('calls')
+// Call history is queried per participant, most-recent first
+@Index(['callerId', 'createdAt'])
+@Index(['calleeId', 'createdAt'])
 export class Call {
   @PrimaryGeneratedColumn('uuid')
   id: string;

@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In, Not } from 'typeorm';
+import { Repository } from 'typeorm';
 import { ChatRoom } from './entities/chat-room.entity';
 import { Message } from './entities/message.entity';
 import { UsersService } from '../users/users.service';
@@ -87,32 +87,46 @@ export class ChatService {
       await this.usersService.getPinnedRoomIds(userId),
     );
 
-    const result = await Promise.all(
-      rooms.map(async (room) => {
-        const lastMessage = await this.messagesRepo.findOne({
-          where: { chatRoomId: room.id },
-          order: { createdAt: 'DESC' },
-          relations: ['sender'],
-        });
+    if (rooms.length === 0) return [];
+    const roomIds = rooms.map((r) => r.id);
 
-        const unreadCount = await this.messagesRepo.count({
-          where: {
-            chatRoomId: room.id,
-            senderId: Not(userId),
-            status: In(['sent', 'delivered']),
-          },
-        });
-
-        return {
-          ...room,
-          lastMessage,
-          unreadCount,
-          isPinned: pinnedIds.has(room.id),
-        };
-      }),
+    // Last message per room in a single query (Postgres DISTINCT ON),
+    // instead of one findOne per room.
+    const lastMessages = await this.messagesRepo
+      .createQueryBuilder('m')
+      .leftJoinAndSelect('m.sender', 'sender')
+      .distinctOn(['m.chat_room_id'])
+      .where('m.chatRoomId IN (:...roomIds)', { roomIds })
+      .orderBy('m.chat_room_id', 'ASC')
+      .addOrderBy('m.createdAt', 'DESC')
+      .getMany();
+    const lastMessageByRoom = new Map(
+      lastMessages.map((m) => [m.chatRoomId, m]),
     );
 
-    return result;
+    // Unread counts for all rooms in a single grouped query,
+    // instead of one count() per room.
+    const unreadRows = await this.messagesRepo
+      .createQueryBuilder('m')
+      .select('m.chatRoomId', 'roomId')
+      .addSelect('COUNT(*)', 'count')
+      .where('m.chatRoomId IN (:...roomIds)', { roomIds })
+      .andWhere('m.senderId != :userId', { userId })
+      .andWhere('m.status IN (:...statuses)', {
+        statuses: ['sent', 'delivered'],
+      })
+      .groupBy('m.chatRoomId')
+      .getRawMany<{ roomId: string; count: string }>();
+    const unreadByRoom = new Map(
+      unreadRows.map((r) => [r.roomId, Number(r.count)]),
+    );
+
+    return rooms.map((room) => ({
+      ...room,
+      lastMessage: lastMessageByRoom.get(room.id) ?? null,
+      unreadCount: unreadByRoom.get(room.id) ?? 0,
+      isPinned: pinnedIds.has(room.id),
+    }));
   }
 
   async sendMessage(
