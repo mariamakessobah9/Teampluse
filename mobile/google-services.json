@@ -7,6 +7,44 @@
   "client": [
     {
       "client_info": {
+        "mobilesdk_app_id": "1:689668473061:android:13e364f2161bb168c4140c",
+        "android_client_info": {
+          "package_name": "babi.chat.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAuD14ah9QH7cud81sgSshruIeg_FxGFzw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:689668473061:android:6e9442fae13d3fc5c4140c",
+        "android_client_info": {
+          "package_name": "babi.teampulse.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAuD14ah9QH7cud81sgSshruIeg_FxGFzw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
         "mobilesdk_app_id": "1:689668473061:android:a7b6a206789c3939c4140c",
         "android_client_info": {
           "package_name": "com.kessobah.teampulse"

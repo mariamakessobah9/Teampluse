@@ -39,3 +39,12 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# signing & secrets (NE JAMAIS committer)
+*.jks
+*.keystore
+credentials.json
+.upload-keystore-password.txt
+*.aab
+*.der
+upload_certificate.pem
