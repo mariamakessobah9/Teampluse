@@ -88,8 +88,18 @@ Networking : si le port affiché ne correspond pas à celui du log
 
 ```bash
 curl https://<ton-domaine>.up.railway.app/api/health
-# {"status":"ok","uptime":12.34}
+# {"status":"ok","uptime":12.34,"realtime":"redis"}
 ```
+
+`realtime` dit si le temps réel est partagé entre instances :
+
+- `"redis"` → `REDIS_URL` est en place, plusieurs réplicas sont possibles
+- `"memory"` → repli, une seule instance supportée
+
+`uptime` sert aussi à vérifier qu'un changement de variable a bien été
+appliqué : sur Railway une variable modifiée reste **en attente** tant que la
+barre **Deploy** n'est pas validée, et rien ne le signale. Si l'uptime continue
+de monter au lieu de repartir de zéro, le changement n'a pas été pris.
 
 Si ça répond, le backend est en ligne. Sinon, regarder les **Deploy Logs**.
 

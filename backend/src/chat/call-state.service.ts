@@ -59,6 +59,14 @@ export class CallStateService implements OnModuleInit, OnModuleDestroy {
     await this.client?.quit().catch(() => undefined);
   }
 
+  /**
+   * true = etat partage via Redis (plusieurs instances possibles),
+   * false = repli en memoire (une seule instance).
+   */
+  isShared(): boolean {
+    return this.client !== null;
+  }
+
   async set(call: ActiveCall): Promise<void> {
     if (!this.client) {
       this.memory.set(call.callId, call);

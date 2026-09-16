@@ -21,5 +21,6 @@ import { CallsModule } from '../calls/calls.module';
   ],
   providers: [ChatService, ChatGateway, CallStateService],
   controllers: [ChatController],
+  exports: [CallStateService],
 })
 export class ChatModule {}
