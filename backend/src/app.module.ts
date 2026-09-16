@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Logger, Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule, TypeOrmModuleOptions } from '@nestjs/typeorm';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
@@ -35,6 +35,20 @@ import { HealthController } from './common/health.controller';
           config.get<string>('DB_SSL', 'false') === 'true'
             ? { rejectUnauthorized: false }
             : undefined;
+
+        // Tracer la cible au demarrage : sans ca, une DATABASE_URL absente se
+        // manifeste par un ECONNREFUSED sur localhost difficile a relier a sa
+        // cause. Jamais l'URL complete, elle contient le mot de passe.
+        const logger = new Logger('Database');
+        if (url) {
+          const { hostname, port: urlPort, pathname } = new URL(url);
+          logger.log(`DATABASE_URL -> ${hostname}:${urlPort || 5432}${pathname}`);
+        } else {
+          logger.warn(
+            `DATABASE_URL absente, repli sur ${config.get<string>('DB_HOST', 'localhost')}:${config.get<number>('DB_PORT', 5432)}. ` +
+              'En production, definir DATABASE_URL.',
+          );
+        }
 
         return {
           type: 'postgres' as const,
