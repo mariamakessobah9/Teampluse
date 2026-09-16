@@ -17,8 +17,14 @@ Le backend est hébergé sur **Railway**, l'app mobile est distribuée via le
 2. Ouvrir le service → **Settings** → **Root Directory** = `backend`.
    Le dépôt contient `backend/` et `mobile/` ; sans ça Railway tente de
    construire le mauvais dossier.
-3. `backend/railway.json` fournit déjà la commande de build, la commande de
-   démarrage et le healthcheck — il n'y a rien à saisir dans l'interface.
+3. **Redeploy.** Le premier build déclenché à la connexion de GitHub échoue
+   toujours : il part de la racine du dépôt, où il n'y a aucune application à
+   détecter (`Railpack failed to prepare the build`). C'est attendu, il suffit
+   de relancer une fois le Root Directory réglé.
+4. `backend/railway.json` fournit la commande de build, la commande de
+   démarrage et le healthcheck — il n'y a rien à saisir dans l'interface. Ce
+   fichier n'est lu qu'une fois le Root Directory correct, puisqu'il se trouve
+   dans `backend/`.
 
 ### 1.2 Ajouter la base de données
 

@@ -14,7 +14,7 @@
   "license": "ISC",
   "type": "commonjs",
   "engines": {
-    "node": ">=22 <25"
+    "node": ">=20"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.19",
