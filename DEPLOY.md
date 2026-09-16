@@ -172,8 +172,59 @@ forcer une adresse : `EXPO_PUBLIC_API_HOST=192.168.1.42`.
   `fetchSockets()`), et l'état des appels est partagé dans Redis. Augmenter
   `numReplicas` est sûr une fois `REDIS_URL` en place — et seulement à ce
   moment-là.
-- **Appels WebRTC.** La signalisation passe par Socket.IO, donc par Railway.
-  Mais sans serveur **TURN**, les appels échoueront entre certains réseaux
-  mobiles (NAT symétrique). STUN seul ne suffit pas dans tous les cas.
+- **Appels WebRTC.** La signalisation passe par Socket.IO. Le média est en
+  pair-à-pair : voir la section TURN ci-dessous.
 - **Plan Railway.** Sur le plan gratuit, le service peut être mis en veille et
   la première requête après inactivité met plusieurs secondes à répondre.
+
+---
+
+## 5. TURN (appels audio/vidéo)
+
+La signalisation WebRTC passe par Socket.IO, mais l'audio et la vidéo vont
+directement d'un téléphone à l'autre. STUN suffit à découvrir l'adresse
+publique dans la plupart des cas ; derrière un **NAT symétrique** — fréquent
+sur les réseaux mobiles — la connexion directe est impossible et il faut
+relayer le flux par un serveur **TURN**. Sans lui, l'appel semble aboutir mais
+reste muet et sans image.
+
+### Configuration
+
+Les serveurs ICE sont servis par `GET /api/calls/ice-servers` (authentifié) et
+non écrits en dur dans l'application : les identifiants TURN tournent, et une
+valeur embarquée dans le bundle imposerait une republication sur le Play Store
+à chaque changement. Le client les récupère au moment de l'appel, avec un cache
+de 10 minutes et un repli STUN si l'API est injoignable.
+
+| Variable | Rôle |
+|---|---|
+| `TURN_URLS` | Liste séparée par des virgules, ex. `turn:host:3478,turns:host:5349` |
+| `TURN_SECRET` | **Mode recommandé.** Secret partagé, identifiants éphémères dérivés par HMAC |
+| `TURN_TTL_SECONDS` | Durée de validité de ces identifiants (défaut `86400`) |
+| `TURN_USERNAME` / `TURN_PASSWORD` | Repli statique, utilisé seulement si `TURN_SECRET` est absent |
+| `STUN_URLS` | Optionnel, deux serveurs Google par défaut |
+
+Privilégier `TURN_SECRET` : le secret ne quitte jamais le serveur, et les
+identifiants distribués expirent. Les identifiants statiques sont envoyés tels
+quels à chaque client et ne changent jamais.
+
+### Choisir un fournisseur
+
+- **Service managé** (Twilio, Metered, Xirsys…) : le plus rapide. Facturé au
+  Go relayé. Prendre l'option « identifiants éphémères » quand elle existe.
+- **coturn auto-hébergé** : moins cher à volume élevé, mais demande un serveur
+  avec IP publique et des ports ouverts. Lancer avec `--use-auth-secret` et
+  `--static-auth-secret=<TURN_SECRET>` pour correspondre au mode recommandé.
+  Railway ne convient pas : TURN a besoin d'UDP, que la plateforme ne route pas.
+
+### Vérifier
+
+Sans `TURN_URLS`, les logs affichent au premier appel :
+
+```
+WARN [Ice] TURN_URLS absente : appels en pair-a-pair uniquement.
+```
+
+Une fois configuré, `GET /api/calls/ice-servers` renvoie une entrée `turn:` en
+plus des `stun:`, avec un `username` de la forme `<timestamp>:<userId>` en mode
+éphémère.

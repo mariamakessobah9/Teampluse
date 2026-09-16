@@ -1,3 +1,4 @@
+import api from './api';
 import { getSocket } from './socket';
 import { useCallStore, CallPeer } from '../store/useCallStore';
 
@@ -15,12 +16,38 @@ try {
 export const isCallSupported = (): boolean => !!RTC;
 export const getRTCView = (): any => RTC?.RTCView ?? null;
 
-const ICE_SERVERS = {
+// Repli si l'API est injoignable : STUN seul permet l'appel sur la plupart
+// des reseaux, mais echoue derriere un NAT symetrique — d'ou le TURN servi
+// par le backend.
+const FALLBACK_ICE = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
   ],
 };
+
+const ICE_CACHE_MS = 10 * 60 * 1000;
+let iceCache: { config: any; expiresAt: number } | null = null;
+
+/**
+ * La config ICE vient du serveur : les identifiants TURN tournent et sont
+ * ephemeres, les figer dans le bundle imposerait une publication Play Store
+ * a chaque rotation.
+ */
+async function getIceConfig(): Promise<any> {
+  if (iceCache && iceCache.expiresAt > Date.now()) return iceCache.config;
+  try {
+    const { data } = await api.get('/calls/ice-servers');
+    if (data?.iceServers?.length) {
+      iceCache = { config: data, expiresAt: Date.now() + ICE_CACHE_MS };
+      return data;
+    }
+  } catch {
+    // Reseau ou serveur indisponible : mieux vaut tenter l'appel en STUN
+    // seul que de le refuser d'emblee.
+  }
+  return FALLBACK_ICE;
+}
 
 let pc: any = null;
 let pendingCandidates: any[] = [];
@@ -37,8 +64,8 @@ async function getLocalStream(video: boolean): Promise<any> {
   });
 }
 
-function createPeer(peerId: string, callId: string): any {
-  const connection = new RTC.RTCPeerConnection(ICE_SERVERS);
+function createPeer(peerId: string, callId: string, iceConfig: any): any {
+  const connection = new RTC.RTCPeerConnection(iceConfig);
 
   connection.addEventListener('icecandidate', (event: any) => {
     if (event.candidate) {
@@ -103,8 +130,11 @@ export const callManager = {
     if (store().status !== 'idle') throw new Error('Already in a call');
     try {
       const callId = newCallId();
-      const stream = await getLocalStream(callType === 'video');
-      pc = createPeer(peer.id, callId);
+      const [stream, iceConfig] = await Promise.all([
+        getLocalStream(callType === 'video'),
+        getIceConfig(),
+      ]);
+      pc = createPeer(peer.id, callId, iceConfig);
       attachLocalTracks(pc, stream);
       store().patch({
         status: 'outgoing',
@@ -158,8 +188,11 @@ export const callManager = {
     const { callId, peer, callType } = store();
     if (!RTC || !callId || !peer) return;
     try {
-      const stream = await getLocalStream(callType === 'video');
-      pc = createPeer(peer.id, callId);
+      const [stream, iceConfig] = await Promise.all([
+        getLocalStream(callType === 'video'),
+        getIceConfig(),
+      ]);
+      pc = createPeer(peer.id, callId, iceConfig);
       attachLocalTracks(pc, stream);
       store().patch({
         status: 'connecting',
