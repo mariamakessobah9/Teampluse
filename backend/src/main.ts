@@ -2,6 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
+import { RedisIoAdapter } from './common/redis-io.adapter';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -29,6 +30,13 @@ async function bootstrap() {
   );
 
   app.setGlobalPrefix('api');
+
+  // Doit etre installe avant listen() : c'est la que le serveur Socket.IO est
+  // cree. Sans REDIS_URL l'adapter reste en memoire et le comportement est
+  // celui d'avant.
+  const socketAdapter = new RedisIoAdapter(app, process.env.REDIS_URL);
+  await socketAdapter.connect();
+  app.useWebSocketAdapter(socketAdapter);
 
   const port = process.env.PORT || 3000;
   // '::' = dual-stack (IPv4 + IPv6). '0.0.0.0' binderait en IPv4 seul, or le

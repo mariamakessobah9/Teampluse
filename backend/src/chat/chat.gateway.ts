@@ -15,16 +15,9 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { CallsService } from '../calls/calls.service';
 import { ChatRoom } from './entities/chat-room.entity';
 import { Message } from './entities/message.entity';
+import { ActiveCall, CallStateService } from './call-state.service';
 
 const userRoomKey = (userId: string) => `user:${userId}`;
-
-interface ActiveCall {
-  callId: string;
-  callerId: string;
-  calleeId: string;
-  type: string; // 'audio' | 'video'
-  startedAt: number | null; // set when the callee accepts
-}
 
 const messagePreview = (message: Message): string => {
   switch (message.type) {
@@ -47,15 +40,13 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server: Server;
 
-  private connectedUsers = new Map<string, string>(); // socketId -> userId
-  private activeCalls = new Map<string, ActiveCall>(); // callId -> call
-
   constructor(
     private readonly chatService: ChatService,
     private readonly usersService: UsersService,
     private readonly jwtService: JwtService,
     private readonly notificationsService: NotificationsService,
     private readonly callsService: CallsService,
+    private readonly callState: CallStateService,
   ) {}
 
   async handleConnection(client: Socket) {
@@ -72,7 +63,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const payload = this.jwtService.verify(token);
       const userId = payload.sub;
 
-      this.connectedUsers.set(client.id, userId);
+      // Porte par le socket : `fetchSockets()` renvoie aussi les sockets des
+      // autres instances, avec leur `data`. Une Map locale, elle, ne
+      // connaitrait que les sockets de l'instance courante.
+      client.data.userId = userId;
       client.join(userRoomKey(userId));
       await this.usersService.setOnlineStatus(userId, true);
 
@@ -86,33 +80,31 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   async handleDisconnect(client: Socket) {
-    const userId = this.connectedUsers.get(client.id);
-    if (userId) {
-      this.connectedUsers.delete(client.id);
-      await this.usersService.setOnlineStatus(userId, false);
-      this.server.emit('user-offline', { userId });
+    const userId = client.data.userId as string | undefined;
+    if (!userId) return;
 
-      // End any call this user was part of (if no other socket of theirs remains).
-      const stillConnected = [...this.connectedUsers.values()].includes(
-        userId,
-      );
-      if (!stillConnected) {
-        for (const call of [...this.activeCalls.values()]) {
-          if (call.callerId !== userId && call.calleeId !== userId) continue;
-          const otherId =
-            call.callerId === userId ? call.calleeId : call.callerId;
-          this.server
-            .to(userRoomKey(otherId))
-            .emit('call-ended', { callId: call.callId });
-          await this.recordCall(
-            call,
-            call.startedAt ? 'completed' : 'missed',
-          );
-          this.activeCalls.delete(call.callId);
-        }
-      }
-      console.log(`User ${userId} disconnected`);
+    await this.usersService.setOnlineStatus(userId, false);
+    this.server.emit('user-offline', { userId });
+
+    // L'utilisateur peut avoir d'autres sockets ouverts (deuxieme appareil),
+    // y compris sur une autre instance : fetchSockets() les voit tous via
+    // l'adapter Redis. Le socket courant a deja quitte ses rooms a ce stade,
+    // on le filtre par prudence.
+    const remaining = (
+      await this.server.in(userRoomKey(userId)).fetchSockets()
+    ).filter((s) => s.id !== client.id);
+    if (remaining.length > 0) return;
+
+    for (const call of await this.callState.findByUser(userId)) {
+      const otherId =
+        call.callerId === userId ? call.calleeId : call.callerId;
+      this.server
+        .to(userRoomKey(otherId))
+        .emit('call-ended', { callId: call.callId });
+      await this.recordCall(call, call.startedAt ? 'completed' : 'missed');
+      await this.callState.delete(call.callId);
     }
+    console.log(`User ${userId} disconnected`);
   }
 
   private async recordCall(call: ActiveCall, status: string): Promise<void> {
@@ -136,7 +128,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() data: { roomId: string },
   ) {
     client.join(data.roomId);
-    const userId = this.connectedUsers.get(client.id);
+    const userId = client.data.userId as string | undefined;
 
     // Mark messages as read when joining
     if (userId) {
@@ -168,7 +160,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       duration?: number;
     },
   ) {
-    const userId = this.connectedUsers.get(client.id);
+    const userId = client.data.userId as string | undefined;
     if (!userId) return;
 
     const message = await this.chatService.sendMessage(
@@ -200,7 +192,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const room = await this.chatService.getRoomById(data.roomId);
     const activeUserIds = new Set(
       roomSockets
-        .map((s) => this.connectedUsers.get(s.id))
+        .map((s) => s.data?.userId as string | undefined)
         .filter((id): id is string => Boolean(id)),
     );
     const recipients = room.members
@@ -227,7 +219,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { roomId: string; isTyping: boolean },
   ) {
-    const userId = this.connectedUsers.get(client.id);
+    const userId = client.data.userId as string | undefined;
     if (!userId) return;
 
     client.to(data.roomId).emit('user-typing', {
@@ -242,7 +234,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { roomId: string },
   ) {
-    const userId = this.connectedUsers.get(client.id);
+    const userId = client.data.userId as string | undefined;
     if (!userId) return;
 
     await this.chatService.markMessagesAsRead(data.roomId, userId);
@@ -260,7 +252,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody()
     data: { callId: string; calleeId: string; callType: string },
   ) {
-    const userId = this.connectedUsers.get(client.id);
+    const userId = client.data.userId as string | undefined;
     if (!userId) return;
 
     const calleeSockets = await this.server
@@ -280,7 +272,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return;
     }
 
-    this.activeCalls.set(data.callId, {
+    await this.callState.set({
       callId: data.callId,
       callerId: userId,
       calleeId: data.calleeId,
@@ -301,13 +293,14 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   @SubscribeMessage('call-accept')
-  handleCallAccept(
+  async handleCallAccept(
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { callId: string },
   ) {
-    const call = this.activeCalls.get(data.callId);
+    // markStarted relit, date et reecrit : avec une Map locale la mutation
+    // par reference suffisait, plus maintenant que l'etat est partage.
+    const call = await this.callState.markStarted(data.callId);
     if (!call) return;
-    call.startedAt = Date.now();
     this.server
       .to(userRoomKey(call.callerId))
       .emit('call-accepted', { callId: data.callId });
@@ -318,13 +311,13 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { callId: string },
   ) {
-    const call = this.activeCalls.get(data.callId);
+    const call = await this.callState.get(data.callId);
     if (!call) return;
     this.server
       .to(userRoomKey(call.callerId))
       .emit('call-rejected', { callId: data.callId });
     await this.recordCall(call, 'rejected');
-    this.activeCalls.delete(data.callId);
+    await this.callState.delete(data.callId);
   }
 
   @SubscribeMessage('call-cancel')
@@ -332,13 +325,13 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { callId: string },
   ) {
-    const call = this.activeCalls.get(data.callId);
+    const call = await this.callState.get(data.callId);
     if (!call) return;
     this.server
       .to(userRoomKey(call.calleeId))
       .emit('call-cancelled', { callId: data.callId });
     await this.recordCall(call, 'missed');
-    this.activeCalls.delete(data.callId);
+    await this.callState.delete(data.callId);
   }
 
   @SubscribeMessage('call-end')
@@ -346,16 +339,16 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { callId: string },
   ) {
-    const call = this.activeCalls.get(data.callId);
+    const call = await this.callState.get(data.callId);
     if (!call) return;
-    const userId = this.connectedUsers.get(client.id);
+    const userId = client.data.userId as string | undefined;
     const otherId =
       userId === call.callerId ? call.calleeId : call.callerId;
     this.server
       .to(userRoomKey(otherId))
       .emit('call-ended', { callId: data.callId });
     await this.recordCall(call, call.startedAt ? 'completed' : 'missed');
-    this.activeCalls.delete(data.callId);
+    await this.callState.delete(data.callId);
   }
 
   @SubscribeMessage('webrtc-offer')

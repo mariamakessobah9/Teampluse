@@ -62,6 +62,7 @@ Service backend → **Variables** :
 | `MAIL_USER` | l'adresse d'envoi |
 | `MAIL_PASS` | le mot de passe d'application Gmail |
 | `APP_URL` | `https://<ton-domaine>.up.railway.app` |
+| `REDIS_URL` | `${{Redis.REDIS_URL}}` (référence). Sans elle, le temps réel fonctionne mais reste limité à une instance |
 | `CORS_ORIGINS` | `*` |
 | `CLOUDINARY_CLOUD_NAME` | … |
 | `CLOUDINARY_API_KEY` | … |
@@ -154,9 +155,13 @@ forcer une adresse : `EXPO_PUBLIC_API_HOST=192.168.1.42`.
 
 ## 4. Limites connues
 
-- **Une seule instance.** `numReplicas: 1` dans `railway.json`. Socket.IO garde
-  l'état des connexions en mémoire : passer à plusieurs réplicas coupera le
-  temps réel tant qu'un adapter Redis n'est pas en place.
+- **Réplicas.** `numReplicas: 1` dans `railway.json`, mais le code supporte
+  désormais plusieurs instances dès lors que `REDIS_URL` est définie :
+  l'adapter Redis relaie les diffusions Socket.IO, l'identité de l'utilisateur
+  est portée par `socket.data` (visible depuis toutes les instances via
+  `fetchSockets()`), et l'état des appels est partagé dans Redis. Augmenter
+  `numReplicas` est sûr une fois `REDIS_URL` en place — et seulement à ce
+  moment-là.
 - **Appels WebRTC.** La signalisation passe par Socket.IO, donc par Railway.
   Mais sans serveur **TURN**, les appels échoueront entre certains réseaux
   mobiles (NAT symétrique). STUN seul ne suffit pas dans tous les cas.
