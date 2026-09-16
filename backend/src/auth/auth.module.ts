@@ -15,7 +15,10 @@ import { UsersModule } from '../users/users.module';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
-        secret: config.get('JWT_SECRET', 'teampulse-secret'),
+        // getOrThrow : sans JWT_SECRET l'app refuse de demarrer, plutot que
+        // de signer les jetons avec une valeur de repli connue de quiconque
+        // lit le depot.
+        secret: config.getOrThrow<string>('JWT_SECRET'),
         signOptions: {
           expiresIn: config.get('JWT_EXPIRATION', '7d'),
         },

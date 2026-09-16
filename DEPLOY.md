@@ -55,7 +55,7 @@ Service backend → **Variables** :
 | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` (référence, pas une valeur en dur) |
 | `DB_SSL` | `false` |
 | `DB_SYNCHRONIZE` | `true` — **à passer à `false` après le premier déploiement réussi** |
-| `JWT_SECRET` | une chaîne aléatoire longue, différente de celle du poste local |
+| `JWT_SECRET` | **Obligatoire.** Chaîne aléatoire longue, différente de celle du poste local. Sans elle l'application refuse de démarrer — c'est voulu : elle se rabattait avant sur une valeur écrite en clair dans le dépôt, ce qui permettait de forger un jeton pour n'importe quel compte |
 | `JWT_EXPIRATION` | `7d` |
 | `MAIL_HOST` | `smtp.gmail.com` |
 | `MAIL_PORT` | `587` |
