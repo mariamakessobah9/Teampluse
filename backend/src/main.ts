@@ -31,7 +31,10 @@ async function bootstrap() {
   app.setGlobalPrefix('api');
 
   const port = process.env.PORT || 3000;
-  await app.listen(port, '0.0.0.0');
+  // '::' = dual-stack (IPv4 + IPv6). '0.0.0.0' binderait en IPv4 seul, or le
+  // reseau interne de Railway est en IPv6 : le proxy ne joindrait pas le
+  // conteneur et renverrait 502 "Application failed to respond".
+  await app.listen(port, '::');
   console.log(`Server listening on port ${port}`);
 }
 bootstrap();
