@@ -9,7 +9,10 @@ export const connectSocket = async (): Promise<Socket> => {
 
   socket = io(SOCKET_URL, {
     auth: { token },
-    transports: ['websocket'],
+    // 'polling' en repli : certains reseaux mobiles / proxies d'entreprise
+    // bloquent l'upgrade WebSocket. Le backend tourne sur une seule instance,
+    // le polling n'a donc pas besoin de sticky sessions.
+    transports: ['websocket', 'polling'],
     autoConnect: true,
   });
 
