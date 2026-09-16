@@ -69,12 +69,19 @@ Service backend → **Variables** :
 
 À ne **pas** définir :
 
-- `PORT` — injecté automatiquement par Railway, l'écraser casse le healthcheck.
+- `PORT` — injecté automatiquement par Railway (`8080`), l'écraser casse le routage.
 - `NODE_ENV=production` — inutile ici et source d'effets de bord au build.
 
 ### 1.4 Exposer le service
 
-**Settings** → **Networking** → **Generate Domain**, port `3000`.
+**Settings** → **Networking** → **Generate Domain**.
+
+Railway injecte sa propre variable `PORT` (aujourd'hui `8080`), et `main.ts`
+l'utilise via `process.env.PORT`. Le **target port** du domaine doit donc
+correspondre à cette valeur, pas à 3000. Vérifie la ligne du domaine dans
+Networking : si le port affiché ne correspond pas à celui du log
+`Server listening on port ...`, corrige-le, sinon l'edge renvoie
+`502 Application failed to respond` alors que l'application tourne très bien.
 
 ### 1.5 Vérifier
 
