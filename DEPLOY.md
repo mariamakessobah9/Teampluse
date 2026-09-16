@@ -30,6 +30,22 @@ Le backend est hébergé sur **Railway**, l'app mobile est distribuée via le
 
 **New** → **Database** → **Add PostgreSQL**, dans le même projet.
 
+Le service Postgres expose deux URL de connexion :
+
+| Variable | Hôte | Usage |
+|---|---|---|
+| `DATABASE_URL` | `postgres.railway.internal` | **À utiliser.** Réseau privé, pas de frais de sortie, pas de TLS → `DB_SSL=false` |
+| `DATABASE_PUBLIC_URL` | `*.proxy.rlwy.net` | Accès depuis l'extérieur (pgAdmin, psql local). Nécessite `DB_SSL=true` |
+
+Ne jamais recopier l'URL à la main dans le service backend : utiliser la
+**référence** `${{Postgres.DATABASE_URL}}`. Railway la résout à chaque
+déploiement, donc une rotation du mot de passe côté base se propage toute
+seule. Une valeur copiée en dur, elle, deviendrait silencieusement obsolète.
+
+> Le réseau privé n'est initialisé qu'au démarrage du conteneur, pas pendant le
+> build. Les premières tentatives de connexion peuvent échouer : TypeORM
+> réessaie automatiquement (10 fois), ce n'est pas une erreur.
+
 ### 1.3 Variables d'environnement
 
 Service backend → **Variables** :
