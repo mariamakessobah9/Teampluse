@@ -32,13 +32,20 @@ export class MailService implements OnModuleInit {
       socketTimeout: 20_000,
     };
 
-    // smtp.gmail.com publie un AAAA et Node privilegie l'IPv6. Si l'egress
-    // IPv6 de la plateforme ne sort pas, la connexion pend sans erreur
-    // jusqu'au timeout. `family` est transmis a net.connect par nodemailer
-    // mais absent de ses definitions de types, d'ou l'assertion.
+    // Railway ne route pas l'IPv6 vers l'internet public : une connexion vers
+    // l'AAAA de smtp.gmail.com echoue en ENETUNREACH.
+    //
+    // Nodemailer resout pourtant l'IPv4 en premier — mais seulement s'il
+    // detecte une interface IPv4 *non interne* sur la machine
+    // (shared/index.js, isFamilySupported). Le conteneur n'ayant que de l'IPv6
+    // sur son interface, resolve4 est court-circuite et il ne reste que
+    // l'IPv6. allowInternalNetworkInterfaces fait compter la loopback, ce qui
+    // debloque la resolution IPv4 et la fait primer.
+    //
+    // Absent des definitions de types de nodemailer, d'ou l'assertion.
     this.transporter = nodemailer.createTransport({
       ...options,
-      family: 4,
+      allowInternalNetworkInterfaces: true,
     } as SMTPTransport.Options);
   }
 
