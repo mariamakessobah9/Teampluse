@@ -57,10 +57,9 @@ Service backend → **Variables** :
 | `DB_SYNCHRONIZE` | `true` — **à passer à `false` après le premier déploiement réussi** |
 | `JWT_SECRET` | **Obligatoire.** Chaîne aléatoire longue, différente de celle du poste local. Sans elle l'application refuse de démarrer — c'est voulu : elle se rabattait avant sur une valeur écrite en clair dans le dépôt, ce qui permettait de forger un jeton pour n'importe quel compte |
 | `JWT_EXPIRATION` | `7d` |
-| `MAIL_HOST` | `smtp.gmail.com` |
-| `MAIL_PORT` | `587` |
-| `MAIL_USER` | l'adresse d'envoi |
-| `MAIL_PASS` | le mot de passe d'application Gmail |
+| `BREVO_API_KEY` *ou* `SENDGRID_API_KEY` | **Obligatoire en production.** Voir la section E-mail ci-dessous — le SMTP ne fonctionne pas sur Railway |
+| `MAIL_FROM` | Adresse expéditrice, vérifiée chez le fournisseur. Par défaut `MAIL_USER` |
+| `MAIL_HOST` / `MAIL_PORT` / `MAIL_USER` / `MAIL_PASS` | SMTP, utile en local seulement |
 | `APP_URL` | `https://<ton-domaine>.up.railway.app` |
 | `REDIS_URL` | `${{Redis.REDIS_URL}}` (référence). Sans elle, le temps réel fonctionne mais reste limité à une instance |
 | `CORS_ORIGINS` | `*` |
@@ -235,3 +234,49 @@ WARN [Ice] TURN_URLS absente : appels en pair-a-pair uniquement.
 Une fois configuré, `GET /api/calls/ice-servers` renvoie une entrée `turn:` en
 plus des `stun:`, avec un `username` de la forme `<timestamp>:<userId>` en mode
 éphémère.
+
+---
+
+## 6. E-mail
+
+**Railway bloque le SMTP sortant.** Les ports 587 et 465 partent tous deux en
+`ETIMEDOUT` : les paquets sont jetés sans refus, ce qui donne une connexion qui
+pend plutôt qu'une erreur franche. Aucun réglage ne contourne ce blocage, et
+les identifiants Gmail n'y sont pour rien — vérifiés valides par ailleurs.
+
+La production doit donc passer par une **API HTTPS**, sur le port 443 que rien
+ne bloque. `MailService` choisit son transport ainsi, dans l'ordre :
+
+1. `BREVO_API_KEY` → API Brevo
+2. `SENDGRID_API_KEY` → API SendGrid
+3. `MAIL_HOST` + `MAIL_USER` + `MAIL_PASS` → SMTP, pour le développement local
+
+### Le piège de l'expéditeur
+
+La plupart de ces services exigent un **domaine vérifié** pour écrire à des
+adresses quelconques. Sans domaine, il faut un fournisseur acceptant la
+vérification d'un **expéditeur unique** :
+
+- **Brevo** — 300 e-mails/jour gratuits, vérification d'une seule adresse.
+  Le choix recommandé sans domaine.
+- **SendGrid** — 100/jour, « Single Sender Verification » équivalente.
+- **Resend** — API la plus simple, mais sans domaine vérifié on ne peut écrire
+  qu'à sa propre adresse : inutilisable ici.
+
+Vérifier l'adresse d'expédition chez le fournisseur, puis la renseigner dans
+`MAIL_FROM` (ou laisser `MAIL_USER` faire office de valeur par défaut). Un
+expéditeur non vérifié fait échouer l'envoi avec un message explicite, remonté
+par l'endpoint de diagnostic ci-dessous.
+
+### Vérifier
+
+```bash
+curl https://<ton-domaine>.up.railway.app/api/health/mail
+# {"ok":true,"provider":"brevo","from":"..."}
+```
+
+Cet endpoint ouvre la connexion et valide les identifiants **sans envoyer de
+message**. Il existe parce que l'envoi d'OTP est en fire-and-forget : l'API
+répond « compte créé » même si aucun message ne part, et la seule autre trace
+est une ligne de log dans le conteneur. Il est soumis au rate limiting, à la
+différence du reste du healthcheck.

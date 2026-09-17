@@ -44,7 +44,8 @@ export class HealthController {
       // echouent en silence quand leurs variables manquent : sans ce champ, la
       // seule trace est dans les logs du conteneur.
       services: {
-        mail: this.set('MAIL_HOST', 'MAIL_USER', 'MAIL_PASS'),
+        mail: this.mail.provider() !== 'none',
+        mailProvider: this.mail.provider(),
         uploads: this.set(
           'CLOUDINARY_CLOUD_NAME',
           'CLOUDINARY_API_KEY',
