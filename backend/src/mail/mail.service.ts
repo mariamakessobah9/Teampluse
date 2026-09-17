@@ -24,6 +24,15 @@ export class MailService implements OnModuleInit {
       port,
       secure: port === 465,
       auth: { user, pass },
+      // smtp.gmail.com publie un AAAA, et Node privilegie l'IPv6. Si l'egress
+      // IPv6 de la plateforme ne sort pas, la connexion pend sans erreur
+      // jusqu'au timeout. On force l'IPv4.
+      family: 4,
+      // Sans ces bornes, une connexion bloquee retient la requete deux
+      // minutes (defauts de nodemailer).
+      connectionTimeout: 10_000,
+      greetingTimeout: 10_000,
+      socketTimeout: 20_000,
     });
   }
 
