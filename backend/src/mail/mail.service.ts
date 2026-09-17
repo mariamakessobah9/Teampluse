@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
+import type SMTPTransport from 'nodemailer/lib/smtp-transport';
 
 export type OtpPurpose = 'verify' | 'reset';
 
@@ -19,21 +20,26 @@ export class MailService implements OnModuleInit {
     const pass = this.config.get<string>('MAIL_PASS');
 
     this.fromAddress = `TeamPulse <${user}>`;
-    this.transporter = nodemailer.createTransport({
+    const options: SMTPTransport.Options = {
       host,
       port,
       secure: port === 465,
       auth: { user, pass },
-      // smtp.gmail.com publie un AAAA, et Node privilegie l'IPv6. Si l'egress
-      // IPv6 de la plateforme ne sort pas, la connexion pend sans erreur
-      // jusqu'au timeout. On force l'IPv4.
-      family: 4,
       // Sans ces bornes, une connexion bloquee retient la requete deux
       // minutes (defauts de nodemailer).
       connectionTimeout: 10_000,
       greetingTimeout: 10_000,
       socketTimeout: 20_000,
-    });
+    };
+
+    // smtp.gmail.com publie un AAAA et Node privilegie l'IPv6. Si l'egress
+    // IPv6 de la plateforme ne sort pas, la connexion pend sans erreur
+    // jusqu'au timeout. `family` est transmis a net.connect par nodemailer
+    // mais absent de ses definitions de types, d'ou l'assertion.
+    this.transporter = nodemailer.createTransport({
+      ...options,
+      family: 4,
+    } as SMTPTransport.Options);
   }
 
   /**
