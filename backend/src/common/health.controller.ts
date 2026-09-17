@@ -1,7 +1,8 @@
 import { Controller, Get } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { SkipThrottle } from '@nestjs/throttler';
+import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import { CallStateService } from '../chat/call-state.service';
+import { MailService } from '../mail/mail.service';
 
 /**
  * Endpoint de healthcheck utilise par Railway (healthcheckPath: /api/health).
@@ -13,10 +14,23 @@ export class HealthController {
   constructor(
     private readonly callState: CallStateService,
     private readonly config: ConfigService,
+    private readonly mail: MailService,
   ) {}
 
   private set(...keys: string[]): boolean {
     return keys.every((k) => Boolean(this.config.get<string>(k)));
+  }
+
+  /**
+   * Teste la connexion SMTP sans envoyer de message. Contrairement au reste
+   * du controleur, cette route reste soumise au rate limiting : elle ouvre
+   * une connexion sortante a chaque appel.
+   */
+  @SkipThrottle({ default: false })
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @Get('mail')
+  async checkMail() {
+    return this.mail.verify();
   }
 
   @Get()

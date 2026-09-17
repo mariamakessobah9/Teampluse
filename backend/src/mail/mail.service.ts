@@ -27,6 +27,21 @@ export class MailService implements OnModuleInit {
     });
   }
 
+  /**
+   * Ouvre la connexion SMTP et s'authentifie, sans envoyer de message.
+   * Expose par /api/health/mail : l'envoi reel etant en fire-and-forget, une
+   * panne SMTP n'est autrement visible que dans les logs du conteneur.
+   */
+  async verify(): Promise<{ ok: boolean; error?: string; code?: string }> {
+    try {
+      await this.transporter.verify();
+      return { ok: true };
+    } catch (err) {
+      const e = err as Error & { code?: string };
+      return { ok: false, error: e.message, code: e.code };
+    }
+  }
+
   async sendOtp(email: string, otp: string, purpose: OtpPurpose): Promise<void> {
     const subject =
       purpose === 'verify'
