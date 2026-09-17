@@ -88,8 +88,15 @@ Networking : si le port affiché ne correspond pas à celui du log
 
 ```bash
 curl https://<ton-domaine>.up.railway.app/api/health
-# {"status":"ok","uptime":12.34,"realtime":"redis"}
+# {"status":"ok","uptime":12.34,"realtime":"redis",
+#  "services":{"mail":true,"uploads":true,"turn":false}}
 ```
+
+`services` indique quelles intégrations sont configurées. C'est important
+parce que l'envoi d'OTP et les uploads **échouent en silence** : l'envoi de
+l'e-mail est en fire-and-forget (`auth.service.ts`), l'API répond « compte
+créé » même si aucun message ne part. Si `mail` est `false`, aucun code de
+vérification n'arrivera jamais et rien ne le signalera côté application.
 
 `realtime` dit si le temps réel est partagé entre instances :
 
