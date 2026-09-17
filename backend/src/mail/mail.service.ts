@@ -1,52 +1,89 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { promises as dns } from 'dns';
 import * as nodemailer from 'nodemailer';
 import type SMTPTransport from 'nodemailer/lib/smtp-transport';
 
 export type OtpPurpose = 'verify' | 'reset';
 
+/** Duree de vie de l'IP resolue : les serveurs SMTP de Gmail tournent. */
+const IP_TTL_MS = 5 * 60 * 1000;
+
 @Injectable()
 export class MailService implements OnModuleInit {
   private readonly logger = new Logger(MailService.name);
-  private transporter: nodemailer.Transporter;
+
+  private host: string;
+  private port: number;
+  private user: string;
+  private pass: string;
   private fromAddress: string;
+
+  private transporter: nodemailer.Transporter | null = null;
+  private resolvedAt = 0;
 
   constructor(private readonly config: ConfigService) {}
 
   onModuleInit() {
-    const host = this.config.get<string>('MAIL_HOST');
-    const port = this.config.get<number>('MAIL_PORT', 587);
-    const user = this.config.get<string>('MAIL_USER');
-    const pass = this.config.get<string>('MAIL_PASS');
+    this.host = this.config.get<string>('MAIL_HOST');
+    this.port = Number(this.config.get<string>('MAIL_PORT') ?? 587);
+    this.user = this.config.get<string>('MAIL_USER');
+    this.pass = this.config.get<string>('MAIL_PASS');
+    this.fromAddress = `TeamPulse <${this.user}>`;
+  }
 
-    this.fromAddress = `TeamPulse <${user}>`;
+  /**
+   * Railway ne route pas l'IPv6 vers l'internet public, et smtp.gmail.com
+   * publie un AAAA. Nodemailer resout lui-meme le nom puis tire une adresse
+   * *au hasard* parmi celles trouvees (shared/index.js, formatDNSValue) ; il
+   * n'inclut l'IPv4 que s'il detecte une interface IPv4 non interne, ce que le
+   * conteneur n'a pas. Resultat : ENETUNREACH systematique.
+   *
+   * On resout donc l'IPv4 ici et on passe l'adresse telle quelle. Ni
+   * `family: 4` ni `allowInternalNetworkInterfaces` n'y changent quoi que ce
+   * soit : le premier arrive trop tard, le second n'atteint pas la fonction
+   * de resolution.
+   */
+  private async resolveIpv4(): Promise<string | null> {
+    try {
+      const [ip] = await dns.resolve4(this.host);
+      return ip ?? null;
+    } catch (err) {
+      this.logger.warn(
+        `Resolution IPv4 de ${this.host} impossible (${(err as Error).message}), repli sur le nom d'hote.`,
+      );
+      return null;
+    }
+  }
+
+  private async transport(): Promise<nodemailer.Transporter> {
+    if (this.transporter && Date.now() - this.resolvedAt < IP_TTL_MS) {
+      return this.transporter;
+    }
+
+    const ip = await this.resolveIpv4();
     const options: SMTPTransport.Options = {
-      host,
-      port,
-      secure: port === 465,
-      auth: { user, pass },
-      // Sans ces bornes, une connexion bloquee retient la requete deux
-      // minutes (defauts de nodemailer).
+      host: ip ?? this.host,
+      port: this.port,
+      secure: this.port === 465,
+      auth: { user: this.user, pass: this.pass },
+      // `host` est une IP : sans servername, nodemailer desactive le SNI et la
+      // validation du certificat de Gmail echoue. Nodemailer fusionne les
+      // options `tls` dans celles de la connexion, pour la liaison directe
+      // comme pour STARTTLS.
+      tls: { servername: this.host },
+      // Defauts de nodemailer a deux minutes : une connexion bloquee
+      // retiendrait la requete tout ce temps.
       connectionTimeout: 10_000,
       greetingTimeout: 10_000,
       socketTimeout: 20_000,
     };
 
-    // Railway ne route pas l'IPv6 vers l'internet public : une connexion vers
-    // l'AAAA de smtp.gmail.com echoue en ENETUNREACH.
-    //
-    // Nodemailer resout pourtant l'IPv4 en premier — mais seulement s'il
-    // detecte une interface IPv4 *non interne* sur la machine
-    // (shared/index.js, isFamilySupported). Le conteneur n'ayant que de l'IPv6
-    // sur son interface, resolve4 est court-circuite et il ne reste que
-    // l'IPv6. allowInternalNetworkInterfaces fait compter la loopback, ce qui
-    // debloque la resolution IPv4 et la fait primer.
-    //
-    // Absent des definitions de types de nodemailer, d'ou l'assertion.
-    this.transporter = nodemailer.createTransport({
-      ...options,
-      allowInternalNetworkInterfaces: true,
-    } as SMTPTransport.Options);
+    this.transporter?.close();
+    this.transporter = nodemailer.createTransport(options);
+    this.resolvedAt = Date.now();
+    this.logger.log(`Transport SMTP vers ${this.host} via ${ip ?? 'nom d\'hote'}:${this.port}`);
+    return this.transporter;
   }
 
   /**
@@ -56,7 +93,7 @@ export class MailService implements OnModuleInit {
    */
   async verify(): Promise<{ ok: boolean; error?: string; code?: string }> {
     try {
-      await this.transporter.verify();
+      await (await this.transport()).verify();
       return { ok: true };
     } catch (err) {
       const e = err as Error & { code?: string };
@@ -84,7 +121,7 @@ export class MailService implements OnModuleInit {
     `;
 
     try {
-      await this.transporter.sendMail({
+      await (await this.transport()).sendMail({
         from: this.fromAddress,
         to: email,
         subject,
