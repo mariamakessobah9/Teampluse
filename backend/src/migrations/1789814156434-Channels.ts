@@ -1,14 +1,33 @@
 import { MigrationInterface, QueryRunner } from "typeorm";
 
+/**
+ * Idempotente : sur une base encore geree par `synchronize`, les colonnes
+ * peuvent deja exister. Un ADD sec ferait echouer le demarrage.
+ */
 export class Channels1789814156434 implements MigrationInterface {
     name = 'Channels1789814156434'
 
     public async up(queryRunner: QueryRunner): Promise<void> {
-        await queryRunner.query(`ALTER TABLE "chat_rooms" ADD "isPublic" boolean NOT NULL DEFAULT false`);
-        await queryRunner.query(`ALTER TABLE "chat_rooms" ADD "description" character varying`);
-        await queryRunner.query(`ALTER TABLE "chat_rooms" ADD "organizationId" uuid`);
-        await queryRunner.query(`CREATE INDEX "IDX_2ba75ff2d039ef6a2e1283d15c" ON "chat_rooms" ("organizationId") `);
-        await queryRunner.query(`ALTER TABLE "chat_rooms" ADD CONSTRAINT "FK_2ba75ff2d039ef6a2e1283d15c8" FOREIGN KEY ("organizationId") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "chat_rooms" ADD COLUMN IF NOT EXISTS "isPublic" boolean NOT NULL DEFAULT false`);
+        await queryRunner.query(`ALTER TABLE "chat_rooms" ADD COLUMN IF NOT EXISTS "description" character varying`);
+        await queryRunner.query(`ALTER TABLE "chat_rooms" ADD COLUMN IF NOT EXISTS "organizationId" uuid`);
+        await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_2ba75ff2d039ef6a2e1283d15c" ON "chat_rooms" ("organizationId") `);
+        // Postgres n'accepte pas IF NOT EXISTS sur une contrainte : on verifie
+        // sa presence, `synchronize` ayant pu la creer avant nous.
+        await queryRunner.query(`
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'FK_2ba75ff2d039ef6a2e1283d15c8'
+                ) THEN
+                    ALTER TABLE "chat_rooms"
+                        ADD CONSTRAINT "FK_2ba75ff2d039ef6a2e1283d15c8"
+                        FOREIGN KEY ("organizationId") REFERENCES "organizations"("id")
+                        ON DELETE CASCADE ON UPDATE NO ACTION;
+                END IF;
+            END $$;
+        `);
 
         // Les salons crees avant les organisations n'en portent aucune : sans
         // ce rattachement ils n'apparaitraient dans la decouverte d'aucune
