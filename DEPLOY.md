@@ -169,6 +169,26 @@ les salons.
 
 ## 2. App mobile
 
+### 2.0 Confidentialité et support (avant publication)
+
+Deux entrées des Réglages — « Politique de confidentialité » et « Aide et
+support » — n'apparaissent que si leurs variables sont définies dans les
+profils `preview` et `production` de `eas.json` :
+
+```json
+"env": {
+  "EXPO_PUBLIC_API_URL": "https://…",
+  "EXPO_PUBLIC_PRIVACY_URL": "https://…/privacy",
+  "EXPO_PUBLIC_SUPPORT_EMAIL": "support@…"
+}
+```
+
+**Ne pas les déclarer avec une valeur vide** : EAS rejette le fichier
+(`"env.X" is not allowed to be empty`). Tant qu'elles sont absentes, les
+lignes correspondantes sont simplement masquées — mais Google Play exige
+l'URL de confidentialité pour publier. Le contenu est dans `PRIVACY.md`, à
+héberger après avoir complété les mentions entre crochets.
+
 ### 2.1 Renseigner l'URL
 
 Dans `mobile/eas.json`, remplacer le placeholder dans **les deux profils**
