@@ -54,7 +54,7 @@ Service backend → **Variables** :
 |---|---|
 | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` (référence, pas une valeur en dur) |
 | `DB_SSL` | `false` |
-| `DB_SYNCHRONIZE` | `true` — **à passer à `false` après le premier déploiement réussi** |
+| `DB_SYNCHRONIZE` | `false` (défaut) — ne jamais activer en production, voir §1.6 |
 | `JWT_SECRET` | **Obligatoire.** Chaîne aléatoire longue, différente de celle du poste local. Sans elle l'application refuse de démarrer — c'est voulu : elle se rabattait avant sur une valeur écrite en clair dans le dépôt, ce qui permettait de forger un jeton pour n'importe quel compte |
 | `JWT_EXPIRATION` | `7d` |
 | `BREVO_API_KEY` *ou* `SENDGRID_API_KEY` | **Obligatoire en production.** Voir la section E-mail ci-dessous — le SMTP ne fonctionne pas sur Railway |
@@ -109,13 +109,61 @@ de monter au lieu de repartir de zéro, le changement n'a pas été pris.
 
 Si ça répond, le backend est en ligne. Sinon, regarder les **Deploy Logs**.
 
-### 1.6 Sécuriser le schéma
+### 1.6 Schéma et migrations
 
-Une fois le premier déploiement passé et les tables créées, mettre
-`DB_SYNCHRONIZE=false`. Laissé à `true`, TypeORM modifie le schéma à chaque
-démarrage et peut **supprimer des colonnes et leurs données** lors d'un
-changement d'entité. Les évolutions de schéma passeront ensuite par des
-migrations TypeORM.
+`DB_SYNCHRONIZE` vaut **`false` par défaut** et doit le rester en production.
+Activé, TypeORM aligne le schéma sur les entités à chaque démarrage et peut
+**supprimer une colonne, donc des données**, dès qu'un champ est renommé.
+
+Le schéma évolue par migrations, appliquées **automatiquement au démarrage**
+(`migrationsRun: true`) : Railway n'offre pas d'étape de déploiement séparée
+où les lancer à la main.
+
+`src/migrations/…-Baseline.ts` reconstitue le schéma tel que `synchronize` le
+créait. Sur une base déjà peuplée, elle détecte la table `users` et se
+contente de s'enregistrer comme appliquée, sans rien toucher.
+
+**Faire évoluer le schéma :**
+
+```bash
+# 1. modifier l'entité, puis générer la migration correspondante
+npm run migration:generate -- src/migrations/NomDuChangement
+
+# 2. relire le SQL produit — surtout les DROP COLUMN
+# 3. appliquer en local
+npm run migration:run
+
+# 4. commiter la migration ; la production l'appliquera au redémarrage
+```
+
+`npm run migration:show` liste l'état, `npm run migration:revert` annule la
+dernière. Revenir sur la migration de référence est bloqué : elle supprimerait
+toutes les tables, et il faut `ALLOW_BASELINE_DOWN=true` pour le faire
+sciemment.
+
+**Sauvegardes.** Les migrations protègent d'une perte accidentelle, pas d'une
+erreur dans un `DROP COLUMN` écrit à la main. Activer les sauvegardes
+automatiques du Postgres Railway avant d'ouvrir le service à de vrais
+utilisateurs.
+
+### 1.7 Tests d'intégration
+
+```bash
+cd backend
+DB_PASSWORD=<mot de passe postgres> npm run test:e2e
+```
+
+La campagne recrée une base jetable (`teampulse_e2e`), y applique les
+migrations comme en production, puis exerce l'API réelle : cloisonnement entre
+organisations, application des rôles, révocation immédiate d'un compte,
+suppression de compte et canal d'accueil.
+
+Le limiteur de débit et le transport e-mail sont neutralisés pendant les
+tests (`THROTTLE_DISABLED`, variables `MAIL_*` vidées) : ils ne sont donc pas
+couverts, contrairement à tout le reste du chemin HTTP.
+
+À lancer avant chaque déploiement touchant l'authentification, les rôles ou
+les salons.
 
 ---
 

@@ -9,6 +9,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { UsersService } from './users.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -66,15 +67,36 @@ export class UsersController {
 
   @Get('search')
   async search(
-    @CurrentUser('id') currentId: string,
+    @CurrentUser() current: { id: string; organizationId: string | null },
     @Query('q') q: string,
   ) {
-    return this.usersService.search(q, currentId);
+    return this.usersService.search(q, current.id, current.organizationId);
+  }
+
+  /**
+   * Suppression definitive du compte par son titulaire. Exigee par Google
+   * Play ; le mot de passe est redemande pour eviter qu'un telephone
+   * deverrouille suffise.
+   */
+  @Delete('me')
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  async deleteMe(
+    @CurrentUser('id') currentId: string,
+    @Body('password') password: string,
+  ) {
+    await this.usersService.deleteAccount(currentId, password);
+    return { ok: true };
   }
 
   @Get('profile/:id')
-  async getProfile(@Param('id') id: string) {
-    const user = await this.usersService.findById(id);
+  async getProfile(
+    @CurrentUser() current: { organizationId: string | null },
+    @Param('id') id: string,
+  ) {
+    const user = await this.usersService.findInOrganization(
+      id,
+      current.organizationId,
+    );
     const { password, otp, otpExpiresAt, ...result } = user;
     return result;
   }

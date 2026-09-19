@@ -20,6 +20,94 @@ export class ChatService {
     private readonly usersService: UsersService,
   ) {}
 
+  /**
+   * Canaux ouverts de l'organisation que cette personne n'a pas encore
+   * rejoints. C'est la liste de decouverte : sans elle, un nouvel arrivant
+   * n'a aucun moyen de trouver les conversations de son equipe.
+   */
+  async discoverableChannels(
+    organizationId: string | null,
+    userId: string,
+  ): Promise<ChatRoom[]> {
+    if (!organizationId) return [];
+    const channels = await this.roomsRepo.find({
+      where: { organizationId, type: 'group', isPublic: true },
+      relations: ['members'],
+      order: { name: 'ASC' },
+    });
+    return channels.filter((c) => !c.members.some((m) => m.id === userId));
+  }
+
+  /**
+   * Rejoindre un canal ouvert de sa propre organisation, sans invitation.
+   * Un salon prive ou appartenant a une autre organisation reste inaccessible.
+   */
+  async joinChannel(
+    roomId: string,
+    userId: string,
+    organizationId: string | null,
+  ): Promise<ChatRoom> {
+    const room = await this.getRoomById(roomId);
+    if (
+      room.type !== 'group' ||
+      !room.isPublic ||
+      !organizationId ||
+      room.organizationId !== organizationId
+    ) {
+      throw new ForbiddenException("Ce canal n'est pas ouvert a votre organisation.");
+    }
+    if (room.members.some((m) => m.id === userId)) return room;
+
+    room.members.push(await this.usersService.findById(userId));
+    return this.roomsRepo.save(room);
+  }
+
+  /**
+   * Recherche plein texte dans les conversations de la personne uniquement.
+   * Le filtre part de l'appartenance aux salons, pas de l'organisation : un
+   * groupe prive dont on ne fait pas partie ne doit pas ressortir, meme entre
+   * collegues.
+   */
+  async searchMessages(
+    userId: string,
+    query: string,
+    limit = 40,
+  ): Promise<Message[]> {
+    const q = query?.trim();
+    if (!q || q.length < 2) return [];
+
+    const messages = await this.messagesRepo
+      .createQueryBuilder('m')
+      .leftJoinAndSelect('m.sender', 'sender')
+      .leftJoinAndSelect('m.chatRoom', 'room')
+      .leftJoinAndSelect('room.members', 'roomMembers')
+      // Restreint aux salons dont l'utilisateur est membre.
+      .where((qb) => {
+        const sub = qb
+          .subQuery()
+          .select('cm.chat_room_id')
+          .from('chat_room_members', 'cm')
+          .where('cm.user_id = :userId')
+          .getQuery();
+        return `m.chat_room_id IN ${sub}`;
+      })
+      .andWhere('m.deletedForEveryone = false')
+      .andWhere('m.content ILIKE :pattern')
+      // Les pieces jointes n'ont pas de texte utile a indexer.
+      .andWhere("m.type = 'text'")
+      .setParameters({ userId, pattern: `%${q}%` })
+      .orderBy('m.createdAt', 'DESC')
+      // On lit un peu plus que demande : les messages effaces cote
+      // utilisateur sont retires ensuite, `deletedFor` etant un simple-array
+      // que SQL ne sait pas filtrer proprement.
+      .take(limit * 2)
+      .getMany();
+
+    return messages
+      .filter((m) => !(m.deletedFor || []).includes(userId))
+      .slice(0, limit);
+  }
+
   async createDirectRoom(userId1: string, userId2: string): Promise<ChatRoom> {
     const candidates = await this.roomsRepo
       .createQueryBuilder('room')
@@ -40,6 +128,9 @@ export class ChatService {
 
     const room = this.roomsRepo.create({
       type: 'direct',
+      // Les deux membres sont de la meme organisation, le controleur l'a
+      // verifie avant d'arriver ici.
+      organizationId: user1.organizationId,
       members: [user1, user2],
     });
 
@@ -50,16 +141,21 @@ export class ChatService {
     name: string,
     adminId: string,
     memberIds: string[],
+    options: { isPublic?: boolean; description?: string } = {},
   ): Promise<ChatRoom> {
     const allIds = [...new Set([adminId, ...memberIds])];
     const members = await Promise.all(
       allIds.map((id) => this.usersService.findById(id)),
     );
+    const admin = members.find((m) => m.id === adminId);
 
     const room = this.roomsRepo.create({
       name,
       type: 'group',
       adminId,
+      isPublic: Boolean(options.isPublic),
+      description: options.description?.trim() || null,
+      organizationId: admin?.organizationId ?? null,
       members,
     });
 

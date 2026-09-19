@@ -1,3 +1,4 @@
+import { join } from 'path';
 import { Logger, Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule, TypeOrmModuleOptions } from '@nestjs/typeorm';
@@ -10,6 +11,7 @@ import { MailModule } from './mail/mail.module';
 import { UploadModule } from './upload/upload.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { CallsModule } from './calls/calls.module';
+import { OrganizationsModule } from './organizations/organizations.module';
 import { HealthController } from './common/health.controller';
 
 @Module({
@@ -18,9 +20,13 @@ import { HealthController } from './common/health.controller';
       isGlobal: true,
       envFilePath: '.env',
     }),
-    ThrottlerModule.forRoot([
-      { name: 'default', ttl: 60_000, limit: 60 },
-    ]),
+    ThrottlerModule.forRoot({
+      throttlers: [{ name: 'default', ttl: 60_000, limit: 60 }],
+      // Echappatoire reservee aux tests d'integration, qui enchainent des
+      // dizaines de requetes depuis la meme adresse. Jamais definie en
+      // production : sans la variable, le limiteur s'applique normalement.
+      skipIf: () => process.env.THROTTLE_DISABLED === 'true',
+    }),
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -63,15 +69,22 @@ import { HealthController } from './common/health.controller';
               }),
           ssl,
           autoLoadEntities: true,
-          // Laisser a true pour le tout premier deploiement (creation des
-          // tables), puis passer DB_SYNCHRONIZE=false et utiliser des
-          // migrations : sinon TypeORM peut supprimer des colonnes en prod.
-          synchronize: config.get<string>('DB_SYNCHRONIZE', 'true') !== 'false',
+          // Desactive par defaut : `synchronize` aligne le schema sur les
+          // entites sans etat d'ame et peut supprimer une colonne — donc des
+          // messages — au premier deploiement qui renomme un champ. Le schema
+          // evolue desormais par migrations uniquement. DB_SYNCHRONIZE=true
+          // reste possible en developpement, jamais en production.
+          synchronize: config.get<string>('DB_SYNCHRONIZE', 'false') === 'true',
+          // Appliquees au demarrage : Railway n'offre pas d'etape de
+          // deploiement separee ou les lancer a la main.
+          migrations: [join(__dirname, 'migrations', '*.{js,ts}')],
+          migrationsRun: true,
         };
       },
     }),
     MailModule,
     UsersModule,
+    OrganizationsModule,
     AuthModule,
     ChatModule,
     UploadModule,

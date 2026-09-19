@@ -9,6 +9,7 @@ import {
   Query,
   UseGuards,
   Inject,
+  ForbiddenException,
   forwardRef,
 } from '@nestjs/common';
 import { ChatService } from './chat.service';
@@ -18,9 +19,33 @@ import { UsersService } from '../users/users.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 
+type Actor = { id: string; organizationId: string | null };
+
 @Controller('chat')
 @UseGuards(JwtAuthGuard)
 export class ChatController {
+  /**
+   * Toute porte d'entree d'un membre dans une conversation passe par ici :
+   * creation d'un direct, d'un groupe, ou ajout a un groupe existant. Sans ce
+   * controle, un identifiant devine suffirait a ouvrir une conversation avec
+   * quelqu'un d'une autre entreprise.
+   */
+  private async assertSameOrganization(
+    actor: Actor,
+    targetIds: string[],
+  ): Promise<void> {
+    const ids = (targetIds || []).filter((id) => id && id !== actor.id);
+    const ok = await this.usersService.allInOrganization(
+      ids,
+      actor.organizationId,
+    );
+    if (!ok) {
+      throw new ForbiddenException(
+        'Tous les participants doivent appartenir a votre organisation.',
+      );
+    }
+  }
+
   constructor(
     private readonly chatService: ChatService,
     @Inject(forwardRef(() => ChatGateway))
@@ -36,22 +61,58 @@ export class ChatController {
 
   @Post('rooms/direct')
   async createDirectRoom(
-    @CurrentUser('id') userId: string,
+    @CurrentUser() current: Actor,
     @Body('targetUserId') targetUserId: string,
   ) {
-    return this.chatService.createDirectRoom(userId, targetUserId);
+    await this.assertSameOrganization(current, [targetUserId]);
+    return this.chatService.createDirectRoom(current.id, targetUserId);
+  }
+
+  @Get('search')
+  async searchMessages(
+    @CurrentUser('id') userId: string,
+    @Query('q') q: string,
+  ) {
+    return this.chatService.searchMessages(userId, q);
+  }
+
+  /** Canaux ouverts de l'organisation restant a rejoindre. */
+  @Get('channels')
+  async discoverChannels(@CurrentUser() current: Actor) {
+    return this.chatService.discoverableChannels(
+      current.organizationId,
+      current.id,
+    );
+  }
+
+  @Post('rooms/:id/join')
+  async joinChannel(
+    @Param('id') roomId: string,
+    @CurrentUser() current: Actor,
+  ) {
+    const room = await this.chatService.joinChannel(
+      roomId,
+      current.id,
+      current.organizationId,
+    );
+    this.chatGateway.emitRoomUpdated(room);
+    return room;
   }
 
   @Post('rooms/group')
   async createGroupRoom(
-    @CurrentUser('id') userId: string,
+    @CurrentUser() current: Actor,
     @Body('name') name: string,
     @Body('memberIds') memberIds: string[],
+    @Body('isPublic') isPublic?: boolean,
+    @Body('description') description?: string,
   ) {
+    await this.assertSameOrganization(current, memberIds ?? []);
     const room = await this.chatService.createGroupRoom(
       name,
-      userId,
+      current.id,
       memberIds,
+      { isPublic, description },
     );
     this.chatGateway.emitRoomCreated(room);
     return room;
@@ -134,10 +195,15 @@ export class ChatController {
   @Post('rooms/:id/members')
   async addMembers(
     @Param('id') roomId: string,
-    @CurrentUser('id') userId: string,
+    @CurrentUser() current: Actor,
     @Body('memberIds') memberIds: string[],
   ) {
-    const room = await this.chatService.addMembers(roomId, userId, memberIds);
+    await this.assertSameOrganization(current, memberIds ?? []);
+    const room = await this.chatService.addMembers(
+      roomId,
+      current.id,
+      memberIds,
+    );
     this.chatGateway.emitRoomUpdated(room);
     if (Array.isArray(memberIds) && memberIds.length > 0) {
       this.notificationsService

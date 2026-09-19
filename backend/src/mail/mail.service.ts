@@ -250,4 +250,37 @@ export class MailService implements OnModuleInit {
       throw err;
     }
   }
+
+  /**
+   * Invitation à rejoindre une organisation. Le code est saisi tel quel dans
+   * l'application : pas de lien cliquable, faute de domaine associé à un
+   * schéma d'URL mobile.
+   */
+  async sendInvitation(
+    email: string,
+    organizationName: string,
+    token: string,
+  ): Promise<void> {
+    const subject = `Rejoignez ${organizationName} sur TeamPulse`;
+
+    const html = `
+      <div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;padding:32px;background:#0f172a;color:#e2e8f0;border-radius:16px">
+        <h1 style="color:#22c55e;margin:0 0 8px">TeamPulse</h1>
+        <h2 style="margin:0 0 24px;color:#fff">Invitation à rejoindre ${organizationName}</h2>
+        <p style="margin:0 0 16px">Installez TeamPulse, choisissez « Rejoindre une organisation » et saisissez ce code d'invitation :</p>
+        <div style="font-size:18px;letter-spacing:2px;font-weight:bold;color:#22c55e;text-align:center;padding:20px;background:#1e293b;border-radius:12px;margin:16px 0;word-break:break-all">${token}</div>
+        <p style="margin:16px 0 0;color:#94a3b8;font-size:13px">Ce code expire dans 7 jours. Si vous n'attendiez pas cette invitation, ignorez ce message.</p>
+      </div>
+    `;
+
+    try {
+      await this.deliver(email, subject, html);
+      this.logger.log(`Invitation envoyée à ${email} via ${this.provider()}`);
+    } catch (err) {
+      this.logger.error(
+        `Échec envoi invitation à ${email}: ${(err as Error).message}`,
+      );
+      throw err;
+    }
+  }
 }
