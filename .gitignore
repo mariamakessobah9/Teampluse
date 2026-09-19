@@ -6,6 +6,13 @@ coverage/
 Thumbs.db
 *.log
 *.tsbuildinfo
+
+# Sortie de compilation deposee a cote des sources des tests : ces .ts sont
+# executes par ts-jest, jamais compiles a la main.
+backend/test/**/*.js
+!backend/test/prepare-db.js
+backend/test/**/*.d.ts
+backend/test/**/*.js.map
 .expo/
 .expo-shared/
 .idea/

@@ -1,0 +1,9 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    // Les globales de Jest restent cantonnees aux tests : les ajouter au
+    // tsconfig racine les rendrait visibles depuis le code applicatif.
+    "types": ["node", "jest"]
+  },
+  "include": ["../src/**/*", "./**/*"]
+}
