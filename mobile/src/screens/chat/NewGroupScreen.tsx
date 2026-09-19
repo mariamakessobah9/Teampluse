@@ -12,6 +12,7 @@ import {
 import { Image } from 'expo-image';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from 'nativewind';
 import api from '../../services/api';
@@ -22,12 +23,14 @@ type Nav = NativeStackNavigationProp<RootStackParamList>;
 
 export default function NewGroupScreen() {
   const nav = useNavigation<Nav>();
+  const insets = useSafeAreaInsets();
   const [name, setName] = useState('');
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<User[]>([]);
   const [selected, setSelected] = useState<User[]>([]);
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [isPublic, setIsPublic] = useState(false);
   const createGroupRoom = useChatStore((s) => s.createGroupRoom);
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
@@ -66,8 +69,9 @@ export default function NewGroupScreen() {
     );
   };
 
+  // Un canal ouvert se cree sans membre : l'organisation le rejoint ensuite.
   const canCreate =
-    name.trim().length >= 2 && selected.length >= 1 && !creating;
+    name.trim().length >= 2 && (isPublic || selected.length >= 1) && !creating;
 
   const handleCreate = async () => {
     if (!canCreate) return;
@@ -76,6 +80,7 @@ export default function NewGroupScreen() {
       const room = await createGroupRoom(
         name.trim(),
         selected.map((u) => u.id),
+        { isPublic },
       );
       nav.replace('ChatRoom', {
         roomId: room.id,
@@ -83,8 +88,8 @@ export default function NewGroupScreen() {
       });
     } catch (e: any) {
       Alert.alert(
-        'Could not create group',
-        e?.response?.data?.message || 'Please try again.',
+        'Création impossible',
+        e?.response?.data?.message || 'Veuillez réessayer.',
       );
       setCreating(false);
     }
@@ -93,7 +98,7 @@ export default function NewGroupScreen() {
   return (
     <View className="flex-1 bg-surface-page dark:bg-dark-200">
       {/* Header */}
-      <View className="bg-surface-header dark:bg-dark-300 pt-14 pb-3 px-4 flex-row items-center">
+      <View className="bg-surface-header dark:bg-dark-300 pb-3 px-4 flex-row items-center" style={{ paddingTop: insets.top + 8 }}>
         <TouchableOpacity
           onPress={() => (nav.canGoBack() ? nav.goBack() : nav.navigate('Main'))}
           className="mr-2"
@@ -101,7 +106,7 @@ export default function NewGroupScreen() {
           <Ionicons name="chevron-back" size={26} color={headerAccent} />
         </TouchableOpacity>
         <Text className="text-ink-900 dark:text-white font-bold text-lg flex-1">
-          New group
+          Nouveau groupe
         </Text>
         <TouchableOpacity
           onPress={handleCreate}
@@ -119,27 +124,72 @@ export default function NewGroupScreen() {
                 canCreate ? 'text-white' : 'text-ink-400 dark:text-slate-400'
               }`}
             >
-              Create
+              Créer
             </Text>
           )}
         </TouchableOpacity>
       </View>
 
-      {/* Group name */}
+      {/* Nom */}
       <View className="px-4 pt-4">
         <Text className="text-ink-500 dark:text-slate-300 text-xs font-semibold uppercase tracking-wider mb-2">
-          Group name
+          Nom
         </Text>
         <View className="bg-surface-card dark:bg-dark-100 rounded-2xl px-4 py-3">
           <TextInput
             className="text-ink-900 dark:text-white text-base"
-            placeholder="e.g. Marketing team"
+            placeholder={isPublic ? 'ex. annonces' : 'ex. Équipe marketing'}
             placeholderTextColor={isDark ? '#64748b' : '#9ca3af'}
             value={name}
             onChangeText={setName}
             maxLength={60}
           />
         </View>
+      </View>
+
+      {/* Visibilité */}
+      <View className="px-4 pt-4">
+        <Text className="text-ink-500 dark:text-slate-300 text-xs font-semibold uppercase tracking-wider mb-2">
+          Visibilité
+        </Text>
+        <View className="flex-row bg-surface-chip dark:bg-dark-100 rounded-2xl p-1">
+          {(
+            [
+              { key: false, label: 'Groupe privé', icon: 'lock-closed' as const },
+              { key: true, label: 'Canal ouvert', icon: 'globe-outline' as const },
+            ] as const
+          ).map((v) => {
+            const active = isPublic === v.key;
+            return (
+              <TouchableOpacity
+                key={String(v.key)}
+                onPress={() => setIsPublic(v.key)}
+                activeOpacity={0.8}
+                className={`flex-1 flex-row items-center justify-center py-2.5 rounded-xl ${
+                  active ? 'bg-primary-600' : ''
+                }`}
+              >
+                <Ionicons
+                  name={v.icon}
+                  size={15}
+                  color={active ? '#ffffff' : isDark ? '#94a3b8' : '#4b5563'}
+                />
+                <Text
+                  className={`text-sm font-semibold ml-1.5 ${
+                    active ? 'text-white' : 'text-ink-700 dark:text-slate-200'
+                  }`}
+                >
+                  {v.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+        <Text className="text-ink-400 dark:text-slate-400 text-xs mt-2">
+          {isPublic
+            ? 'Visible de toute l’organisation, qui peut le rejoindre librement. Aucun membre à choisir.'
+            : 'Accessible uniquement aux personnes que vous ajoutez.'}
+        </Text>
       </View>
 
       {/* Selected chips */}

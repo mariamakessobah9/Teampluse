@@ -14,7 +14,9 @@
     "preview": {
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://teampluse-production.up.railway.app"
+        "EXPO_PUBLIC_API_URL": "https://teampluse-production.up.railway.app",
+        "EXPO_PUBLIC_PRIVACY_URL": "",
+        "EXPO_PUBLIC_SUPPORT_EMAIL": ""
       },
       "android": {
         "buildType": "apk"
@@ -23,7 +25,9 @@
     "production": {
       "autoIncrement": true,
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://teampluse-production.up.railway.app"
+        "EXPO_PUBLIC_API_URL": "https://teampluse-production.up.railway.app",
+        "EXPO_PUBLIC_PRIVACY_URL": "",
+        "EXPO_PUBLIC_SUPPORT_EMAIL": ""
       },
       "android": {
         "buildType": "app-bundle"

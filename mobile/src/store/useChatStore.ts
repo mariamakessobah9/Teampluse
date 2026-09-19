@@ -24,7 +24,12 @@ interface ChatState {
   setTyping: (roomId: string, userId: string, isTyping: boolean) => void;
 
   createDirectRoom: (targetUserId: string) => Promise<ChatRoom>;
-  createGroupRoom: (name: string, memberIds: string[]) => Promise<ChatRoom>;
+  createGroupRoom: (
+    name: string,
+    memberIds: string[],
+    /** Canal ouvert : rejoignable par toute l'organisation sans invitation. */
+    options?: { isPublic?: boolean; description?: string },
+  ) => Promise<ChatRoom>;
 
   updateGroup: (
     roomId: string,
@@ -266,8 +271,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
     return data;
   },
 
-  createGroupRoom: async (name, memberIds) => {
-    const { data } = await api.post('/chat/rooms/group', { name, memberIds });
+  createGroupRoom: async (name, memberIds, options = {}) => {
+    const { data } = await api.post('/chat/rooms/group', {
+      name,
+      memberIds,
+      isPublic: Boolean(options.isPublic),
+      ...(options.description ? { description: options.description } : {}),
+    });
     get().upsertRoom(data);
     return data;
   },

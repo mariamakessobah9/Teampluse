@@ -1,17 +1,21 @@
-import React, { useCallback, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
   FlatList,
   TouchableOpacity,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from 'nativewind';
 import { useChatStore } from '../../store/useChatStore';
 import { ChatRoom, RootStackParamList } from '../../types';
+import { getDiscoverableChannels, joinChannel } from '../../services/chat';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 
@@ -28,7 +32,7 @@ const formatTime = (dateStr?: string) => {
       minute: '2-digit',
     });
   }
-  if (diffDays === 1) return 'Yesterday';
+  if (diffDays === 1) return 'Hier';
   return date.toLocaleDateString();
 };
 
@@ -99,13 +103,46 @@ export default function TeamsScreen() {
   const rooms = useChatStore((s) => s.rooms);
   const fetchRooms = useChatStore((s) => s.fetchRooms);
   const nav = useNavigation<Nav>();
+  const insets = useSafeAreaInsets();
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
   const headerAccent = isDark ? '#86efac' : '#15803d';
 
+  const [channels, setChannels] = useState<ChatRoom[]>([]);
+  const [joining, setJoining] = useState<string | null>(null);
+
+  const loadChannels = useCallback(async () => {
+    try {
+      setChannels(await getDiscoverableChannels());
+    } catch {
+      // La decouverte est secondaire : un echec ne doit pas vider l'ecran.
+      setChannels([]);
+    }
+  }, []);
+
   useEffect(() => {
     fetchRooms();
-  }, []);
+    loadChannels();
+  }, [loadChannels]);
+
+  const handleJoin = useCallback(
+    async (channel: ChatRoom) => {
+      setJoining(channel.id);
+      try {
+        await joinChannel(channel.id);
+        setChannels((list) => list.filter((c) => c.id !== channel.id));
+        await fetchRooms();
+      } catch (err: any) {
+        Alert.alert(
+          'Erreur',
+          err?.response?.data?.message || 'Impossible de rejoindre ce canal.',
+        );
+      } finally {
+        setJoining(null);
+      }
+    },
+    [fetchRooms],
+  );
 
   const groups = rooms.filter((r) => r.type === 'group');
 
@@ -113,7 +150,7 @@ export default function TeamsScreen() {
     (room: ChatRoom) =>
       nav.navigate('ChatRoom', {
         roomId: room.id,
-        roomName: room.name || 'Group',
+        roomName: room.name || 'Groupe',
       }),
     [nav],
   );
@@ -127,13 +164,13 @@ export default function TeamsScreen() {
 
   return (
     <View className="flex-1 bg-surface-page dark:bg-dark-200">
-      <View className="bg-surface-header dark:bg-dark-300 pt-14 pb-3 px-4 flex-row items-center justify-between">
+      <View className="bg-surface-header dark:bg-dark-300 pb-3 px-4 flex-row items-center justify-between" style={{ paddingTop: insets.top + 8 }}>
         <View className="flex-row items-center">
           <View className="w-8 h-8 rounded-full bg-primary-600 items-center justify-center mr-3">
             <Ionicons name="people" size={16} color="#ffffff" />
           </View>
           <Text className="text-primary-700 dark:text-primary-300 text-xl font-bold">
-            Teams
+            Équipes
           </Text>
         </View>
         <TouchableOpacity
@@ -148,6 +185,60 @@ export default function TeamsScreen() {
         data={groups}
         keyExtractor={(item) => item.id}
         renderItem={renderRoom}
+        ListHeaderComponent={
+          channels.length > 0 ? (
+            <View className="mb-2">
+              <Text className="text-ink-400 dark:text-slate-400 text-xs font-bold tracking-wider mx-4 mt-2 mb-2">
+                CANAUX À REJOINDRE
+              </Text>
+              {channels.map((c) => (
+                <View
+                  key={c.id}
+                  className="flex-row items-center px-4 py-3 mx-4 mb-2 bg-surface-card dark:bg-dark-100 rounded-2xl"
+                >
+                  <View className="w-10 h-10 rounded-2xl bg-primary-100 dark:bg-primary-900 items-center justify-center mr-3">
+                    <Text className="text-primary-700 dark:text-primary-300 text-lg font-bold">
+                      #
+                    </Text>
+                  </View>
+                  <View className="flex-1 mr-2">
+                    <Text
+                      className="text-ink-900 dark:text-white font-semibold"
+                      numberOfLines={1}
+                    >
+                      {c.name}
+                    </Text>
+                    <Text
+                      className="text-ink-400 dark:text-slate-400 text-xs mt-0.5"
+                      numberOfLines={1}
+                    >
+                      {c.description ||
+                        `${c.members?.length ?? 0} membre${(c.members?.length ?? 0) > 1 ? 's' : ''}`}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    onPress={() => handleJoin(c)}
+                    disabled={joining === c.id}
+                    activeOpacity={0.85}
+                    className="bg-primary-600 rounded-full px-4 py-2"
+                  >
+                    {joining === c.id ? (
+                      <ActivityIndicator size="small" color="#ffffff" />
+                    ) : (
+                      <Text className="text-white font-bold text-sm">
+                        Rejoindre
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              ))}
+              <View className="h-px bg-ink-200/40 dark:bg-slate-700/50 mx-4 mt-1" />
+              <Text className="text-ink-400 dark:text-slate-400 text-xs font-bold tracking-wider mx-4 mt-3">
+                MES ÉQUIPES
+              </Text>
+            </View>
+          ) : null
+        }
         ItemSeparatorComponent={() => (
           <View className="h-px bg-ink-200/40 dark:bg-slate-700/50 mx-4" />
         )}
@@ -162,10 +253,10 @@ export default function TeamsScreen() {
               <Ionicons name="people-outline" size={28} color={headerAccent} />
             </View>
             <Text className="text-ink-900 dark:text-white font-bold text-lg text-center">
-              No teams yet
+              Aucune équipe
             </Text>
             <Text className="text-ink-400 dark:text-slate-400 text-sm text-center mt-1">
-              Create a group to collaborate with multiple people.
+              Créez un groupe, ou rejoignez un canal ouvert de votre organisation.
             </Text>
             <TouchableOpacity
               onPress={() => nav.navigate('NewGroup')}
@@ -173,7 +264,7 @@ export default function TeamsScreen() {
               className="bg-primary-600 rounded-full px-5 py-2.5 mt-5 flex-row items-center"
             >
               <Ionicons name="add" size={18} color="#ffffff" />
-              <Text className="text-white font-bold ml-1">New group</Text>
+              <Text className="text-white font-bold ml-1">Nouveau groupe</Text>
             </TouchableOpacity>
           </View>
         }

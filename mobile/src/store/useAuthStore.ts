@@ -10,13 +10,21 @@ interface AuthState {
   isAuthenticated: boolean;
   isLoading: boolean;
 
-  register: (name: string, email: string, password: string) => Promise<void>;
+  register: (
+    name: string,
+    email: string,
+    password: string,
+    /** Créer une organisation, ou la rejoindre avec un code. Exclusifs. */
+    org: { organizationName?: string; invitationToken?: string },
+  ) => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   sendOtp: (email: string) => Promise<void>;
   verifyOtp: (email: string, otp: string) => Promise<void>;
   forgotPassword: (email: string) => Promise<void>;
   resetPassword: (email: string, otp: string, newPassword: string) => Promise<void>;
   logout: () => Promise<void>;
+  /** Suppression définitive : efface les données personnelles côté serveur. */
+  deleteAccount: (password: string) => Promise<void>;
   loadToken: () => Promise<void>;
   updateProfile: (payload: {
     name?: string;
@@ -40,8 +48,15 @@ export const useAuthStore = create<AuthState>((set) => ({
   isAuthenticated: false,
   isLoading: true,
 
-  register: async (name, email, password) => {
-    await api.post('/auth/register', { name, email, password });
+  register: async (name, email, password, org) => {
+    await api.post('/auth/register', {
+      name,
+      email,
+      password,
+      // Omis plutôt qu'envoyés vides : le backend valide en @IsNotEmpty.
+      ...(org.organizationName ? { organizationName: org.organizationName } : {}),
+      ...(org.invitationToken ? { invitationToken: org.invitationToken } : {}),
+    });
   },
 
   login: async (email, password) => {
@@ -74,6 +89,16 @@ export const useAuthStore = create<AuthState>((set) => ({
   logout: async () => {
     // Remove this device's push token while the JWT is still valid.
     await unregisterActivePushToken();
+    await SecureStore.deleteItemAsync('token');
+    set({ user: null, token: null, isAuthenticated: false });
+  },
+
+  deleteAccount: async (password) => {
+    // `data` et non un corps positionnel : axios n'envoie pas de corps sur un
+    // DELETE autrement, et le serveur rejetterait la demande.
+    await api.delete('/users/me', { data: { password } });
+    // Le jeton est désormais refusé côté serveur ; on nettoie localement sans
+    // repasser par /users/push-token, qui échouerait.
     await SecureStore.deleteItemAsync('token');
     set({ user: null, token: null, isAuthenticated: false });
   },

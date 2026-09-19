@@ -1,19 +1,53 @@
+export type OrgRole = 'owner' | 'admin' | 'member';
+
 export interface User {
   id: string;
   name: string;
   email: string;
   avatar?: string;
   phone?: string;
-  role: string;
+  role: OrgRole;
+  organizationId?: string | null;
+  isActive?: boolean;
   isOnline: boolean;
   isVerified: boolean;
   createdAt: string;
+}
+
+export interface Organization {
+  id: string;
+  name: string;
+  slug: string;
+  /** Domaines dont les adresses rejoignent l'organisation sans invitation. */
+  allowedDomains: string[] | null;
+  createdAt: string;
+}
+
+export interface Invitation {
+  id: string;
+  email: string;
+  token: string;
+  role: OrgRole;
+  expiresAt: string;
+  createdAt: string;
+}
+
+/** Aperçu public d'une invitation, avant création du compte. */
+export interface InvitationPreview {
+  email: string;
+  role: OrgRole;
+  organizationName: string;
+  expiresAt: string;
 }
 
 export interface ChatRoom {
   id: string;
   name?: string;
   type: 'direct' | 'group';
+  /** Canal ouvert : visible et rejoignable par toute l'organisation. */
+  isPublic?: boolean;
+  description?: string | null;
+  organizationId?: string | null;
   avatar?: string;
   members: User[];
   adminId?: string;
@@ -65,6 +99,8 @@ export type RootStackParamList = {
   ChatRoom: { roomId: string; roomName: string };
   GroupSettings: { roomId: string };
   UserProfile: { userId: string };
+  Organization: undefined;
+  Search: undefined;
   CallDetail: { call: Call };
 };
 

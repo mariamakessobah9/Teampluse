@@ -10,21 +10,30 @@ import {
 import { Image } from 'expo-image';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from 'nativewind';
 import { useChatStore } from '../../store/useChatStore';
 import { useAuthStore } from '../../store/useAuthStore';
 import { ChatRoom, RootStackParamList, User } from '../../types';
+import ChatListSkeleton from '../../components/ChatListSkeleton';
+import Logo from '../../components/Logo';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 
-const FILTERS = ['All', 'Direct', 'Teams'] as const;
-type Filter = (typeof FILTERS)[number];
+// La cle sert au filtrage, le libelle a l'affichage : traduire directement les
+// valeurs casserait les comparaisons plus bas.
+const FILTERS = [
+  { key: 'All', label: 'Toutes' },
+  { key: 'Direct', label: 'Directes' },
+  { key: 'Teams', label: 'Équipes' },
+] as const;
+type Filter = (typeof FILTERS)[number]['key'];
 
 const getRoomDisplayName = (room: ChatRoom, currentUser?: User | null) => {
-  if (room.type === 'group') return room.name || 'Group';
+  if (room.type === 'group') return room.name || 'Groupe';
   const other = room.members?.find((m) => m.id !== currentUser?.id);
-  return other?.name || 'Chat';
+  return other?.name || 'Conversation';
 };
 
 const getRoomAvatar = (room: ChatRoom, currentUser?: User | null) => {
@@ -55,17 +64,17 @@ const formatTime = (dateStr?: string) => {
       minute: '2-digit',
     });
   }
-  if (diffDays === 1) return 'Yesterday';
+  if (diffDays === 1) return 'Hier';
   return date.toLocaleDateString();
 };
 
 const lastMessageText = (room: ChatRoom) => {
   const m = room.lastMessage;
-  if (!m) return 'No messages yet';
+  if (!m) return 'Aucun message';
   let preview = m.content;
   if (m.type === 'image') preview = '📷 Photo';
   else if (m.type === 'file') preview = `📎 ${m.fileName || 'Document'}`;
-  else if (m.type === 'voice') preview = '🎤 Voice message';
+  else if (m.type === 'voice') preview = '🎤 Message vocal';
   const first = m.sender?.name?.split(' ')[0];
   return room.type === 'group' && first ? `${first}: ${preview}` : preview;
 };
@@ -154,13 +163,18 @@ export default function ChatsScreen() {
   const unpinRoom = useChatStore((s) => s.unpinRoom);
   const currentUser = useAuthStore((s) => s.user);
   const nav = useNavigation<Nav>();
+  const insets = useSafeAreaInsets();
   const [filter, setFilter] = useState<Filter>('All');
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
   const headerAccent = isDark ? '#86efac' : '#15803d';
 
+  // Le store n'expose pas d'indicateur de chargement : sans etat local, la
+  // liste vide s'affiche une fraction de seconde comme si le compte etait vide.
+  const [loading, setLoading] = useState(true);
+
   useEffect(() => {
-    fetchRooms();
+    Promise.resolve(fetchRooms()).finally(() => setLoading(false));
   }, []);
 
   const openRoom = useCallback(
@@ -176,10 +190,10 @@ export default function ChatsScreen() {
     (room: ChatRoom) => {
       const name = getRoomDisplayName(room, currentUser);
       Alert.alert(name, undefined, [
-        { text: 'Cancel', style: 'cancel' },
+        { text: 'Annuler', style: 'cancel' },
         room.isPinned
-          ? { text: 'Unpin conversation', onPress: () => unpinRoom(room.id) }
-          : { text: 'Pin conversation', onPress: () => pinRoom(room.id) },
+          ? { text: 'Détacher la conversation', onPress: () => unpinRoom(room.id) }
+          : { text: 'Épingler la conversation', onPress: () => pinRoom(room.id) },
       ]);
     },
     [currentUser, pinRoom, unpinRoom],
@@ -281,11 +295,11 @@ export default function ChatsScreen() {
         contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 12 }}
       >
         {FILTERS.map((f) => {
-          const active = f === filter;
+          const active = f.key === filter;
           return (
             <TouchableOpacity
-              key={f}
-              onPress={() => setFilter(f)}
+              key={f.key}
+              onPress={() => setFilter(f.key)}
               activeOpacity={0.7}
               className={`px-4 py-2 rounded-full mr-2 ${
                 active
@@ -300,7 +314,7 @@ export default function ChatsScreen() {
                     : 'text-ink-700 dark:text-slate-200'
                 }`}
               >
-                {f}
+                {f.label}
               </Text>
             </TouchableOpacity>
           );
@@ -311,7 +325,7 @@ export default function ChatsScreen() {
       {pinnedRooms.length > 0 && (
         <View className="mb-2">
           <Text className="text-ink-400 dark:text-slate-400 text-xs font-bold tracking-wider mx-4 mb-2">
-            PINNED
+            ÉPINGLÉES
           </Text>
           <ScrollView
             horizontal
@@ -325,7 +339,7 @@ export default function ChatsScreen() {
 
       {unpinnedRooms.length > 0 && pinnedRooms.length > 0 && (
         <Text className="text-ink-400 dark:text-slate-400 text-xs font-bold tracking-wider mx-4 mt-2 mb-1">
-          ALL CONVERSATIONS
+          TOUTES LES CONVERSATIONS
         </Text>
       )}
     </View>
@@ -334,16 +348,19 @@ export default function ChatsScreen() {
   return (
     <View className="flex-1 bg-surface-page dark:bg-dark-200">
       {/* Top header bar */}
-      <View className="bg-surface-header dark:bg-dark-300 pt-14 pb-3 px-4 flex-row items-center justify-between">
+      <View className="bg-surface-header dark:bg-dark-300 pb-3 px-4 flex-row items-center justify-between" style={{ paddingTop: insets.top + 8 }}>
         <View className="flex-row items-center">
-          <View className="w-8 h-8 rounded-full bg-ink-900 dark:bg-primary-700 items-center justify-center mr-3">
-            <View className="w-2.5 h-2.5 rounded-full bg-white" />
+          <View className="mr-3">
+            <Logo size={32} />
           </View>
           <Text className="text-primary-700 dark:text-primary-300 text-xl font-bold">
             TeamPulse
           </Text>
         </View>
-        <TouchableOpacity activeOpacity={0.7}>
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={() => nav.navigate('Search')}
+        >
           <Ionicons name="search" size={22} color={headerAccent} />
         </TouchableOpacity>
       </View>
@@ -362,10 +379,22 @@ export default function ChatsScreen() {
         windowSize={11}
         removeClippedSubviews={true}
         ListEmptyComponent={
-          pinnedRooms.length === 0 ? (
-            <View className="items-center justify-center pt-8 px-8">
-              <Text className="text-ink-400 dark:text-slate-400 text-base text-center">
-                No conversations yet.{'\n'}Tap the + button to start one.
+          loading ? (
+            <ChatListSkeleton />
+          ) : pinnedRooms.length === 0 ? (
+            <View className="items-center justify-center pt-12 px-8">
+              <View className="w-16 h-16 rounded-full bg-surface-chip dark:bg-dark-100 items-center justify-center mb-4">
+                <Ionicons
+                  name="chatbubbles-outline"
+                  size={28}
+                  color={isDark ? '#64748b' : '#9ca3af'}
+                />
+              </View>
+              <Text className="text-ink-700 dark:text-slate-200 text-base font-semibold text-center">
+                Aucune conversation
+              </Text>
+              <Text className="text-ink-400 dark:text-slate-400 text-sm text-center mt-1">
+                Appuyez sur le bouton + pour en démarrer une.
               </Text>
             </View>
           ) : null

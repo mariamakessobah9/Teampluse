@@ -12,6 +12,8 @@ import TeamsScreen from '../screens/chat/TeamsScreen';
 import CallsScreen from '../screens/chat/CallsScreen';
 import UserProfileScreen from '../screens/UserProfileScreen';
 import CallDetailScreen from '../screens/CallDetailScreen';
+import OrganizationScreen from '../screens/settings/OrganizationScreen';
+import SearchScreen from '../screens/SearchScreen';
 import SettingsScreen from '../screens/settings/SettingsScreen';
 import { MainTabParamList, RootStackParamList } from '../types';
 
@@ -103,6 +105,16 @@ export default function MainNavigator() {
         name="CallDetail"
         component={CallDetailScreen}
         options={{ animation: 'slide_from_right' }}
+      />
+      <Stack.Screen
+        name="Organization"
+        component={OrganizationScreen}
+        options={{ animation: 'slide_from_right' }}
+      />
+      <Stack.Screen
+        name="Search"
+        component={SearchScreen}
+        options={{ animation: 'slide_from_bottom' }}
       />
     </Stack.Navigator>
   );
