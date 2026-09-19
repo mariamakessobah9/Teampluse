@@ -1,17 +1,12 @@
 import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  Alert,
-  KeyboardAvoidingView,
-  Platform,
-} from 'react-native';
+import { Text, TouchableOpacity, Alert } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useAuthStore } from '../../store/useAuthStore';
 import { RootStackParamList } from '../../types';
+import AuthLayout from '../../components/auth/AuthLayout';
+import AuthField from '../../components/auth/AuthField';
+import AuthButton from '../../components/auth/AuthButton';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 
@@ -23,7 +18,7 @@ export default function ForgotPasswordScreen() {
 
   const handleSubmit = async () => {
     if (!email) {
-      Alert.alert('Error', 'Please enter your email');
+      Alert.alert('Champ manquant', 'Saisissez votre adresse e-mail.');
       return;
     }
     setLoading(true);
@@ -32,49 +27,39 @@ export default function ForgotPasswordScreen() {
       await forgotPassword(cleanEmail);
       nav.navigate('ResetPassword', { email: cleanEmail });
     } catch (err: any) {
-      Alert.alert('Error', err?.response?.data?.message || 'Request failed');
+      Alert.alert('Erreur', err?.response?.data?.message || 'Demande impossible');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      className="flex-1 bg-dark-200"
+    <AuthLayout
+      title="Mot de passe oublié"
+      subtitle="Saisissez votre e-mail : nous vous enverrons un code à 6 chiffres pour réinitialiser votre mot de passe."
     >
-      <View className="flex-1 justify-center px-8">
-        <Text className="text-3xl font-bold text-white mb-2">Forgot password</Text>
-        <Text className="text-slate-400 text-base mb-8">
-          Enter your email and we'll send you a 6-digit code to reset your password.
+      <AuthField
+        className="mb-6"
+        placeholder="E-mail"
+        value={email}
+        onChangeText={setEmail}
+        keyboardType="email-address"
+        autoCapitalize="none"
+        autoComplete="email"
+      />
+
+      <AuthButton
+        label="Envoyer le code"
+        loadingLabel="Envoi…"
+        loading={loading}
+        onPress={handleSubmit}
+      />
+
+      <TouchableOpacity className="items-center py-2" onPress={() => nav.goBack()}>
+        <Text className="text-ink-500 dark:text-slate-400">
+          Retour à la connexion
         </Text>
-
-        <TextInput
-          className="bg-dark-100 text-white rounded-xl px-4 py-4 mb-6 text-base"
-          placeholder="Email"
-          placeholderTextColor="#64748b"
-          value={email}
-          onChangeText={setEmail}
-          keyboardType="email-address"
-          autoCapitalize="none"
-        />
-
-        <TouchableOpacity
-          className={`rounded-xl py-4 items-center mb-4 ${
-            loading ? 'bg-primary-800' : 'bg-primary-600'
-          }`}
-          onPress={handleSubmit}
-          disabled={loading}
-        >
-          <Text className="text-white font-bold text-base">
-            {loading ? 'Sending...' : 'Send reset code'}
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity className="items-center py-2" onPress={() => nav.goBack()}>
-          <Text className="text-slate-400">Back to sign in</Text>
-        </TouchableOpacity>
-      </View>
-    </KeyboardAvoidingView>
+      </TouchableOpacity>
+    </AuthLayout>
   );
 }

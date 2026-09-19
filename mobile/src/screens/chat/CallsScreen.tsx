@@ -9,6 +9,7 @@ import {
 import { Image } from 'expo-image';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from 'nativewind';
 import api from '../../services/api';
@@ -166,6 +167,7 @@ const CallRow = React.memo(function CallRow({
 export default function CallsScreen() {
   const currentUser = useAuthStore((s) => s.user);
   const nav = useNavigation<Nav>();
+  const insets = useSafeAreaInsets();
   const [calls, setCalls] = useState<Call[]>([]);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -300,7 +302,7 @@ export default function CallsScreen() {
   return (
     <View className="flex-1 bg-surface-page dark:bg-dark-200">
       {/* Header */}
-      <View className="bg-surface-header dark:bg-dark-300 pt-14 pb-3 px-4 flex-row items-center justify-between">
+      <View className="bg-surface-header dark:bg-dark-300 pb-3 px-4 flex-row items-center justify-between" style={{ paddingTop: insets.top + 8 }}>
         {selectionMode ? (
           <>
             <View className="flex-row items-center">

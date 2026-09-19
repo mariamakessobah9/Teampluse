@@ -7,6 +7,7 @@ import {
   RouteProp,
 } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from 'nativewind';
 import { useAuthStore } from '../store/useAuthStore';
@@ -41,6 +42,7 @@ const formatDuration = (seconds: number) => {
 export default function CallDetailScreen() {
   const route = useRoute<Route>();
   const nav = useNavigation<Nav>();
+  const insets = useSafeAreaInsets();
   const { call } = route.params;
   const currentUser = useAuthStore((s) => s.user);
   const { colorScheme } = useColorScheme();
@@ -107,7 +109,7 @@ export default function CallDetailScreen() {
   return (
     <View className="flex-1 bg-surface-page dark:bg-dark-200">
       {/* Header */}
-      <View className="bg-surface-header dark:bg-dark-300 pt-14 pb-3 px-4 flex-row items-center">
+      <View className="bg-surface-header dark:bg-dark-300 pb-3 px-4 flex-row items-center" style={{ paddingTop: insets.top + 8 }}>
         <TouchableOpacity
           onPress={() => (nav.canGoBack() ? nav.goBack() : nav.navigate('Main'))}
           className="mr-2"

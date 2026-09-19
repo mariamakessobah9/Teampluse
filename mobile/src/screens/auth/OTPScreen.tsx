@@ -1,14 +1,11 @@
 import React, { useState, useRef } from 'react';
-import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  Alert,
-} from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, Alert } from 'react-native';
 import { useRoute, RouteProp } from '@react-navigation/native';
+import { useColorScheme } from 'nativewind';
 import { useAuthStore } from '../../store/useAuthStore';
 import { RootStackParamList } from '../../types';
+import AuthLayout from '../../components/auth/AuthLayout';
+import AuthButton from '../../components/auth/AuthButton';
 
 type OTPRoute = RouteProp<RootStackParamList, 'OTP'>;
 
@@ -17,9 +14,12 @@ export default function OTPScreen() {
   const { email } = route.params;
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
   const [loading, setLoading] = useState(false);
+  const [focused, setFocused] = useState<number | null>(null);
   const inputs = useRef<(TextInput | null)[]>([]);
   const verifyOtp = useAuthStore((s) => s.verifyOtp);
   const sendOtp = useAuthStore((s) => s.sendOtp);
+  const { colorScheme } = useColorScheme();
+  const caret = colorScheme === 'dark' ? '#4ade80' : '#16a34a';
 
   const handleChange = (value: string, index: number) => {
     const newOtp = [...otp];
@@ -48,14 +48,14 @@ export default function OTPScreen() {
   const handleVerify = async (code?: string) => {
     const otpCode = code || otp.join('');
     if (otpCode.length !== 6) {
-      Alert.alert('Error', 'Please enter the 6-digit code');
+      Alert.alert('Code incomplet', 'Saisissez les 6 chiffres reçus.');
       return;
     }
     setLoading(true);
     try {
       await verifyOtp(email, otpCode);
     } catch (err: any) {
-      Alert.alert('Error', err?.response?.data?.message || 'Invalid OTP');
+      Alert.alert('Erreur', err?.response?.data?.message || 'Code invalide');
     } finally {
       setLoading(false);
     }
@@ -64,28 +64,35 @@ export default function OTPScreen() {
   const handleResend = async () => {
     try {
       await sendOtp(email);
-      Alert.alert('Success', 'OTP sent again');
+      Alert.alert('Code renvoyé', 'Un nouveau code vient de vous être envoyé.');
     } catch {
-      Alert.alert('Error', 'Failed to resend OTP');
+      Alert.alert('Erreur', 'Envoi du code impossible');
     }
   };
 
   return (
-    <View className="flex-1 bg-dark-200 justify-center px-8">
-      <Text className="text-3xl font-bold text-white mb-2">Verify Email</Text>
-      <Text className="text-slate-400 text-base mb-8">
-        Enter the 6-digit code sent to {email}
-      </Text>
-
+    <AuthLayout
+      title="Vérification"
+      subtitle={`Saisissez le code à 6 chiffres envoyé à ${email}`}
+    >
       <View className="flex-row justify-between mb-8">
         {otp.map((digit, index) => (
           <TextInput
             key={index}
             ref={(ref) => { inputs.current[index] = ref; }}
-            className="bg-dark-100 text-white text-center text-2xl font-bold rounded-xl w-12 h-14"
+            // La case active se distingue par sa bordure : sans repere, on ne
+            // sait pas ou l'on en est dans la saisie.
+            className={`bg-surface-card dark:bg-dark-100 text-ink-900 dark:text-white text-center text-2xl font-bold rounded-xl w-12 h-14 border-2 ${
+              focused === index
+                ? 'border-primary-500'
+                : 'border-ink-200 dark:border-transparent'
+            }`}
+            selectionColor={caret}
             maxLength={1}
             keyboardType="number-pad"
             value={digit}
+            onFocus={() => setFocused(index)}
+            onBlur={() => setFocused((i) => (i === index ? null : i))}
             onChangeText={(v) => handleChange(v, index)}
             onKeyPress={({ nativeEvent }) =>
               handleKeyPress(nativeEvent.key, index)
@@ -94,24 +101,21 @@ export default function OTPScreen() {
         ))}
       </View>
 
-      <TouchableOpacity
-        className={`rounded-xl py-4 items-center mb-4 ${
-          loading ? 'bg-primary-800' : 'bg-primary-600'
-        }`}
+      <AuthButton
+        label="Vérifier"
+        loadingLabel="Vérification…"
+        loading={loading}
         onPress={() => handleVerify()}
-        disabled={loading}
-      >
-        <Text className="text-white font-bold text-base">
-          {loading ? 'Verifying...' : 'Verify'}
-        </Text>
-      </TouchableOpacity>
+      />
 
       <TouchableOpacity className="items-center py-2" onPress={handleResend}>
-        <Text className="text-slate-400">
-          Didn't receive code?{' '}
-          <Text className="text-primary-500 font-semibold">Resend</Text>
+        <Text className="text-ink-500 dark:text-slate-400">
+          Code non reçu ?{' '}
+          <Text className="text-primary-600 dark:text-primary-400 font-semibold">
+            Renvoyer
+          </Text>
         </Text>
       </TouchableOpacity>
-    </View>
+    </AuthLayout>
   );
 }

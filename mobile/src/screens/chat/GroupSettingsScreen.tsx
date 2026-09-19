@@ -18,6 +18,7 @@ import {
   CommonActions,
 } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from 'nativewind';
 import * as ImagePicker from 'expo-image-picker';
@@ -33,6 +34,7 @@ type Nav = NativeStackNavigationProp<RootStackParamList>;
 export default function GroupSettingsScreen() {
   const route = useRoute<Route>();
   const nav = useNavigation<Nav>();
+  const insets = useSafeAreaInsets();
   const { roomId } = route.params;
   const room = useChatStore((s) => s.rooms.find((r) => r.id === roomId));
   const updateGroup = useChatStore((s) => s.updateGroup);
@@ -358,7 +360,7 @@ export default function GroupSettingsScreen() {
   return (
     <View className="flex-1 bg-surface-page dark:bg-dark-200">
       {/* Header */}
-      <View className="bg-surface-header dark:bg-dark-300 pt-14 pb-3 px-4 flex-row items-center">
+      <View className="bg-surface-header dark:bg-dark-300 pb-3 px-4 flex-row items-center" style={{ paddingTop: insets.top + 8 }}>
         <TouchableOpacity
           onPress={() => (nav.canGoBack() ? nav.goBack() : nav.navigate('Main'))}
           className="mr-2"
@@ -506,7 +508,7 @@ export default function GroupSettingsScreen() {
         onRequestClose={() => setAddModalOpen(false)}
       >
         <View className="flex-1 bg-surface-page dark:bg-dark-200">
-          <View className="bg-surface-header dark:bg-dark-300 pt-14 pb-3 px-4 flex-row items-center">
+          <View className="bg-surface-header dark:bg-dark-300 pb-3 px-4 flex-row items-center" style={{ paddingTop: insets.top + 8 }}>
             <TouchableOpacity
               onPress={() => {
                 setAddModalOpen(false);

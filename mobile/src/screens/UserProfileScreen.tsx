@@ -6,13 +6,14 @@ import {
   ScrollView,
   ActivityIndicator,
 } from 'react-native';
-import { Image } from 'expo-image';
 import {
   useRoute,
   useNavigation,
   RouteProp,
 } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import ProfileAvatar from '../components/ProfileAvatar';
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from 'nativewind';
 import api from '../services/api';
@@ -32,6 +33,7 @@ const formatJoinDate = (dateStr?: string) => {
 export default function UserProfileScreen() {
   const route = useRoute<Route>();
   const nav = useNavigation<Nav>();
+  const insets = useSafeAreaInsets();
   const { userId } = route.params;
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
@@ -56,16 +58,10 @@ export default function UserProfileScreen() {
     };
   }, [userId]);
 
-  const initials = (user?.name || 'U')
-    .split(' ')
-    .map((p) => p.charAt(0).toUpperCase())
-    .slice(0, 2)
-    .join('');
-
   return (
     <View className="flex-1 bg-surface-page dark:bg-dark-200">
       {/* Header */}
-      <View className="bg-surface-header dark:bg-dark-300 pt-14 pb-3 px-4 flex-row items-center">
+      <View className="bg-surface-header dark:bg-dark-300 pb-3 px-4 flex-row items-center" style={{ paddingTop: insets.top + 8 }}>
         <TouchableOpacity
           onPress={() => (nav.canGoBack() ? nav.goBack() : nav.navigate('Main'))}
           className="mr-2"
@@ -73,7 +69,7 @@ export default function UserProfileScreen() {
           <Ionicons name="chevron-back" size={26} color={headerAccent} />
         </TouchableOpacity>
         <Text className="text-ink-900 dark:text-white font-bold text-lg">
-          Profile
+          Profil
         </Text>
       </View>
 
@@ -84,7 +80,7 @@ export default function UserProfileScreen() {
       ) : !user ? (
         <View className="flex-1 items-center justify-center px-8">
           <Text className="text-ink-500 dark:text-slate-300 text-center">
-            Could not load this profile.
+            Profil introuvable.
           </Text>
         </View>
       ) : (
@@ -92,20 +88,7 @@ export default function UserProfileScreen() {
           {/* Avatar + name */}
           <View className="items-center mt-6 mb-4">
             <View className="relative">
-              <View className="w-28 h-28 rounded-full border-[3px] border-primary-500 items-center justify-center bg-primary-100 dark:bg-primary-900 overflow-hidden">
-                {user.avatar ? (
-                  <Image
-                    source={{ uri: user.avatar }}
-                    className="w-28 h-28 rounded-full"
-                    cachePolicy="memory-disk"
-                    transition={120}
-                  />
-                ) : (
-                  <Text className="text-primary-700 dark:text-primary-300 text-3xl font-bold">
-                    {initials}
-                  </Text>
-                )}
-              </View>
+              <ProfileAvatar uri={user.avatar} name={user.name} />
               <View
                 className={`absolute bottom-1 right-1 w-6 h-6 rounded-full border-2 border-surface-page dark:border-dark-200 ${
                   user.isOnline
@@ -124,7 +107,7 @@ export default function UserProfileScreen() {
                   : 'text-ink-400 dark:text-slate-400'
               }`}
             >
-              {user.isOnline ? 'Online' : 'Offline'}
+              {user.isOnline ? 'En ligne' : 'Hors ligne'}
             </Text>
           </View>
 
@@ -136,7 +119,7 @@ export default function UserProfileScreen() {
               </View>
               <View className="flex-1">
                 <Text className="text-ink-400 dark:text-slate-400 text-xs font-semibold tracking-wider">
-                  EMAIL ADDRESS
+                  ADRESSE E-MAIL
                 </Text>
                 <Text className="text-ink-900 dark:text-white text-base font-semibold mt-0.5">
                   {user.email}
@@ -152,7 +135,7 @@ export default function UserProfileScreen() {
               </View>
               <View className="flex-1">
                 <Text className="text-ink-400 dark:text-slate-400 text-xs font-semibold tracking-wider">
-                  PHONE NUMBER
+                  NUMÉRO DE TÉLÉPHONE
                 </Text>
                 <Text
                   className={`text-base font-semibold mt-0.5 ${
@@ -161,7 +144,7 @@ export default function UserProfileScreen() {
                       : 'text-ink-400 dark:text-slate-400'
                   }`}
                 >
-                  {user.phone || 'Not provided'}
+                  {user.phone || 'Non renseigné'}
                 </Text>
               </View>
             </View>
@@ -174,12 +157,12 @@ export default function UserProfileScreen() {
               </View>
               <View className="flex-1">
                 <Text className="text-ink-400 dark:text-slate-400 text-xs font-semibold tracking-wider">
-                  ROLE
+                  RÔLE
                 </Text>
                 <Text className="text-ink-900 dark:text-white text-base font-semibold mt-0.5">
                   {user.role
                     ? user.role.charAt(0).toUpperCase() + user.role.slice(1)
-                    : 'Member'}
+                    : 'Membre'}
                 </Text>
               </View>
             </View>
@@ -192,7 +175,7 @@ export default function UserProfileScreen() {
               </View>
               <View className="flex-1">
                 <Text className="text-ink-400 dark:text-slate-400 text-xs font-semibold tracking-wider">
-                  MEMBER SINCE
+                  MEMBRE DEPUIS
                 </Text>
                 <Text className="text-ink-900 dark:text-white text-base font-semibold mt-0.5">
                   {formatJoinDate(user.createdAt)}

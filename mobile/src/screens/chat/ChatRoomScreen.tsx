@@ -16,6 +16,7 @@ import {
 import { Image } from 'expo-image';
 import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from 'nativewind';
 import * as ImagePicker from 'expo-image-picker';
@@ -289,6 +290,7 @@ const MessageRow = React.memo(function MessageRow({
 export default function ChatRoomScreen() {
   const route = useRoute<ChatRoomRoute>();
   const nav = useNavigation<Nav>();
+  const insets = useSafeAreaInsets();
   const { roomId, roomName } = route.params;
   const [text, setText] = useState('');
   const flatListRef = useRef<FlatList>(null);
@@ -767,7 +769,7 @@ export default function ChatRoomScreen() {
       className="flex-1 bg-surface-page dark:bg-dark-200"
     >
       {/* Header */}
-      <View className="bg-surface-header dark:bg-dark-300 pt-14 pb-3 px-4 flex-row items-center">
+      <View className="bg-surface-header dark:bg-dark-300 pb-3 px-4 flex-row items-center" style={{ paddingTop: insets.top + 8 }}>
         <TouchableOpacity
           onPress={() => (nav.canGoBack() ? nav.goBack() : nav.navigate('Main'))}
           className="mr-2"
@@ -852,9 +854,6 @@ export default function ChatRoomScreen() {
             </TouchableOpacity>
           </>
         )}
-        <TouchableOpacity className="ml-4">
-          <Ionicons name="search" size={22} color={headerAccent} />
-        </TouchableOpacity>
       </View>
 
       {/* Date pill */}

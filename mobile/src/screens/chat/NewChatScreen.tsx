@@ -10,6 +10,7 @@ import {
 import { Image } from 'expo-image';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from 'nativewind';
 import api from '../../services/api';
@@ -70,6 +71,7 @@ const UserRow = React.memo(function UserRow({
 
 export default function NewChatScreen() {
   const nav = useNavigation<Nav>();
+  const insets = useSafeAreaInsets();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<User[]>([]);
   const [loading, setLoading] = useState(false);
@@ -122,7 +124,7 @@ export default function NewChatScreen() {
   return (
     <View className="flex-1 bg-surface-page dark:bg-dark-200">
       {/* Header */}
-      <View className="bg-surface-header dark:bg-dark-300 pt-14 pb-3 px-4 flex-row items-center">
+      <View className="bg-surface-header dark:bg-dark-300 pb-3 px-4 flex-row items-center" style={{ paddingTop: insets.top + 8 }}>
         <TouchableOpacity
           onPress={() => (nav.canGoBack() ? nav.goBack() : nav.navigate('Main'))}
           className="mr-2"
