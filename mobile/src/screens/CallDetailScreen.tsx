@@ -1,5 +1,11 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, ScrollView } from 'react-native';
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  ScrollView,
+  Alert,
+} from 'react-native';
 import { Image } from 'expo-image';
 import {
   useRoute,
@@ -19,7 +25,7 @@ type Nav = NativeStackNavigationProp<RootStackParamList>;
 
 const formatDateTime = (dateStr: string) => {
   const date = new Date(dateStr);
-  const day = date.toLocaleDateString(undefined, {
+  const day = date.toLocaleDateString('fr-FR', {
     weekday: 'long',
     day: 'numeric',
     month: 'long',
@@ -57,22 +63,31 @@ export default function CallDetailScreen() {
 
   const statusLabel =
     call.status === 'completed'
-      ? 'Completed'
+      ? 'Terminé'
       : call.status === 'rejected'
-      ? 'Declined'
+      ? 'Refusé'
       : isOutgoing
-      ? 'No answer'
-      : 'Missed';
+      ? 'Pas de réponse'
+      : 'Manqué';
 
   const startCall = async (type: 'audio' | 'video') => {
-    if (!isCallSupported()) return;
+    if (!isCallSupported()) {
+      Alert.alert(
+        'Appels indisponibles',
+        "Cette version de l'application ne prend pas en charge les appels.",
+      );
+      return;
+    }
     try {
       await callManager.startCall(
         { id: other.id, name: other.name, avatar: other.avatar },
         type,
       );
-    } catch {
-      // ignore — surfaced elsewhere
+    } catch (e: any) {
+      Alert.alert(
+        "Impossible d'appeler",
+        e?.message || 'Veuillez réessayer.',
+      );
     }
   };
 
@@ -117,7 +132,7 @@ export default function CallDetailScreen() {
           <Ionicons name="chevron-back" size={26} color={headerAccent} />
         </TouchableOpacity>
         <Text className="text-ink-900 dark:text-white font-bold text-lg">
-          Call details
+          Détail de l'appel
         </Text>
       </View>
 
@@ -139,7 +154,7 @@ export default function CallDetailScreen() {
             )}
           </View>
           <Text className="text-ink-900 dark:text-white text-2xl font-bold mt-3">
-            {other?.name || 'Unknown'}
+            {other?.name || 'Inconnu'}
           </Text>
           <View className="flex-row items-center mt-1">
             <Ionicons
@@ -154,8 +169,8 @@ export default function CallDetailScreen() {
                   : 'text-ink-500 dark:text-slate-300'
               }`}
             >
-              {isOutgoing ? 'Outgoing' : 'Incoming'} ·{' '}
-              {call.type === 'video' ? 'Video' : 'Audio'} call
+              Appel {isOutgoing ? 'sortant' : 'entrant'} ·{' '}
+              {call.type === 'video' ? 'vidéo' : 'audio'}
             </Text>
           </View>
         </View>
@@ -179,7 +194,7 @@ export default function CallDetailScreen() {
           >
             <Ionicons name="videocam" size={18} color={headerAccent} />
             <Text className="text-primary-700 dark:text-primary-200 font-semibold ml-2">
-              Video
+              Vidéo
             </Text>
           </TouchableOpacity>
         </View>
@@ -188,7 +203,7 @@ export default function CallDetailScreen() {
         <View className="mx-4 bg-surface-card dark:bg-dark-100 rounded-2xl px-4 py-1">
           <InfoRow
             icon="time-outline"
-            label="TIME"
+            label="HEURE"
             value={time}
           />
           <View className="h-px bg-ink-200/40 dark:bg-slate-700/50" />
@@ -199,12 +214,12 @@ export default function CallDetailScreen() {
               call.type === 'video' ? 'videocam-outline' : 'call-outline'
             }
             label="TYPE"
-            value={call.type === 'video' ? 'Video call' : 'Audio call'}
+            value={call.type === 'video' ? 'Appel vidéo' : 'Appel audio'}
           />
           <View className="h-px bg-ink-200/40 dark:bg-slate-700/50" />
           <InfoRow
             icon={missed ? 'close-circle-outline' : 'checkmark-circle-outline'}
-            label="STATUS"
+            label="STATUT"
             value={statusLabel}
             valueClass={missed ? 'text-red-500' : undefined}
           />
@@ -213,7 +228,7 @@ export default function CallDetailScreen() {
               <View className="h-px bg-ink-200/40 dark:bg-slate-700/50" />
               <InfoRow
                 icon="hourglass-outline"
-                label="DURATION"
+                label="DURÉE"
                 value={formatDuration(call.duration)}
               />
             </>
@@ -230,7 +245,7 @@ export default function CallDetailScreen() {
         >
           <Ionicons name="person-outline" size={20} color={mutedIcon} />
           <Text className="text-ink-900 dark:text-white text-base font-medium flex-1 ml-3">
-            View profile
+            Voir le profil
           </Text>
           <Ionicons name="chevron-forward" size={18} color="#9ca3af" />
         </TouchableOpacity>

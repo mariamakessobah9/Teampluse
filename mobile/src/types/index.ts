@@ -101,6 +101,7 @@ export type RootStackParamList = {
   UserProfile: { userId: string };
   Organization: undefined;
   Search: undefined;
+  NewCall: undefined;
   CallDetail: { call: Call };
 };
 

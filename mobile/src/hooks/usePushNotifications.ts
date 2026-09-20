@@ -5,11 +5,23 @@ import {
   registerForPushNotifications,
   registerPushTokenWithBackend,
 } from '../services/notifications';
-import { navigateToRoom } from '../navigation/navigationRef';
+import {
+  navigateToCalls,
+  navigateToRoom,
+} from '../navigation/navigationRef';
 
 const handleNotificationData = (data: unknown) => {
   if (!data || typeof data !== 'object') return;
   const payload = data as { type?: string; roomId?: string };
+
+  // Appel entrant : rien a ouvrir, revenir au premier plan suffit. Le
+  // socket se reconnecte et redemande l'appel en attente, ce qui fait
+  // remonter l'ecran d'appel tout seul.
+  if (payload.type === 'incoming-call') return;
+  if (payload.type === 'missed-call') {
+    navigateToCalls();
+    return;
+  }
   if (payload.roomId) {
     navigateToRoom(payload.roomId);
   }

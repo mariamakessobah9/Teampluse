@@ -12,6 +12,7 @@ import TeamsScreen from '../screens/chat/TeamsScreen';
 import CallsScreen from '../screens/chat/CallsScreen';
 import UserProfileScreen from '../screens/UserProfileScreen';
 import CallDetailScreen from '../screens/CallDetailScreen';
+import NewCallScreen from '../screens/NewCallScreen';
 import OrganizationScreen from '../screens/settings/OrganizationScreen';
 import SearchScreen from '../screens/SearchScreen';
 import SettingsScreen from '../screens/settings/SettingsScreen';
@@ -100,6 +101,11 @@ export default function MainNavigator() {
         name="UserProfile"
         component={UserProfileScreen}
         options={{ animation: 'slide_from_right' }}
+      />
+      <Stack.Screen
+        name="NewCall"
+        component={NewCallScreen}
+        options={{ animation: 'slide_from_bottom' }}
       />
       <Stack.Screen
         name="CallDetail"

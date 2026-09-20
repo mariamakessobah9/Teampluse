@@ -30,7 +30,7 @@ const formatWhen = (dateStr: string) => {
       hour: '2-digit',
       minute: '2-digit',
     });
-  if (diffDays === 1) return 'Yesterday';
+  if (diffDays === 1) return 'Hier';
   return date.toLocaleDateString();
 };
 
@@ -38,7 +38,7 @@ const formatDuration = (seconds: number) => {
   if (!seconds) return '';
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
-  return `${m}m ${s}s`;
+  return m > 0 ? `${m} min ${s} s` : `${s} s`;
 };
 
 const CallRow = React.memo(function CallRow({
@@ -111,7 +111,7 @@ const CallRow = React.memo(function CallRow({
           }`}
           numberOfLines={1}
         >
-          {other?.name || 'Unknown'}
+          {other?.name || 'Inconnu'}
         </Text>
         <View className="flex-row items-center mt-0.5">
           <Ionicons
@@ -207,8 +207,8 @@ export default function CallsScreen() {
     async (other: Call['caller'], type: 'audio' | 'video') => {
       if (!isCallSupported()) {
         Alert.alert(
-          'Calls unavailable',
-          'Please update to the latest app build to make calls.',
+          'Appels indisponibles',
+          "Cette version de l'application ne prend pas en charge les appels.",
         );
         return;
       }
@@ -218,7 +218,10 @@ export default function CallsScreen() {
           type,
         );
       } catch (e: any) {
-        Alert.alert('Call failed', e?.message || 'Please try again.');
+        Alert.alert(
+          "Impossible d'appeler",
+          e?.message || 'Veuillez réessayer.',
+        );
       }
     },
     [],
@@ -248,14 +251,14 @@ export default function CallsScreen() {
   const handleDeleteSelected = () => {
     if (selectedIds.size === 0) return;
     Alert.alert(
-      'Delete from history',
-      `Remove ${selectedIds.size} call${
+      "Supprimer de l'historique",
+      `Retirer ${selectedIds.size} appel${
         selectedIds.size > 1 ? 's' : ''
-      } from your history?`,
+      } de votre historique ?`,
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: 'Annuler', style: 'cancel' },
         {
-          text: 'Delete',
+          text: 'Supprimer',
           style: 'destructive',
           onPress: async () => {
             const ids = [...selectedIds];
@@ -265,7 +268,10 @@ export default function CallsScreen() {
               await api.delete('/calls', { data: { ids } });
             } catch {
               load();
-              Alert.alert('Failed', 'Could not delete. Please try again.');
+              Alert.alert(
+                'Échec',
+                'Suppression impossible. Veuillez réessayer.',
+              );
             }
           },
         },
@@ -310,7 +316,7 @@ export default function CallsScreen() {
                 <Ionicons name="close" size={24} color={headerAccent} />
               </TouchableOpacity>
               <Text className="text-ink-900 dark:text-white text-lg font-bold">
-                {selectedIds.size} selected
+                {selectedIds.size} sélectionné{selectedIds.size > 1 ? 's' : ''}
               </Text>
             </View>
             <TouchableOpacity
@@ -331,7 +337,7 @@ export default function CallsScreen() {
               <Ionicons name="call" size={16} color="#ffffff" />
             </View>
             <Text className="text-primary-700 dark:text-primary-300 text-xl font-bold">
-              Calls
+              Appels
             </Text>
           </View>
         )}
@@ -355,14 +361,26 @@ export default function CallsScreen() {
               <Ionicons name="call-outline" size={28} color={headerAccent} />
             </View>
             <Text className="text-ink-900 dark:text-white font-bold text-lg text-center">
-              No calls yet
+              Aucun appel
             </Text>
             <Text className="text-ink-400 dark:text-slate-400 text-sm text-center mt-1">
-              Start a call from any conversation.
+              Appuyez sur le bouton + pour appeler un collègue.
             </Text>
           </View>
         }
       />
+
+      {/* Nouvel appel : seul point d'entree quand l'historique est vide. */}
+      {!selectionMode && (
+        <TouchableOpacity
+          onPress={() => nav.navigate('NewCall')}
+          activeOpacity={0.85}
+          accessibilityLabel="Nouvel appel"
+          className="absolute bottom-6 right-6 w-14 h-14 rounded-full bg-primary-600 items-center justify-center shadow-lg"
+        >
+          <Ionicons name="add" size={30} color="#ffffff" />
+        </TouchableOpacity>
+      )}
     </View>
   );
 }

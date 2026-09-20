@@ -19,6 +19,9 @@ import { ActiveCall, CallStateService } from './call-state.service';
 
 const userRoomKey = (userId: string) => `user:${userId}`;
 
+/** Duree de sonnerie avant classement en appel manque. */
+const RING_TIMEOUT_MS = 45_000;
+
 const messagePreview = (message: Message): string => {
   switch (message.type) {
     case 'image':
@@ -98,11 +101,17 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     for (const call of await this.callState.findByUser(userId)) {
       const otherId =
         call.callerId === userId ? call.calleeId : call.callerId;
+      this.clearRingTimer(call.callId);
       this.server
         .to(userRoomKey(otherId))
         .emit('call-ended', { callId: call.callId });
       await this.recordCall(call, call.startedAt ? 'completed' : 'missed');
       await this.callState.delete(call.callId);
+      // L'appelant a perdu le reseau avant qu'on decroche : le destinataire
+      // doit quand meme retrouver l'appel manque.
+      if (!call.startedAt && call.callerId === userId) {
+        await this.notifyMissedCall(call);
+      }
     }
     console.log(`User ${userId} disconnected`);
   }
@@ -118,6 +127,66 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         type: call.type,
         status,
         duration,
+      })
+      .catch(() => undefined);
+  }
+
+  /**
+   * Minuteurs de sonnerie, par appel.
+   *
+   * Sans eux, un appel que personne ne decroche reste ouvert indefiniment :
+   * l'appelant entend la sonnerie sans fin et le destinataire ne voit jamais
+   * d'appel manque dans son historique.
+   */
+  private readonly ringTimers = new Map<string, NodeJS.Timeout>();
+
+  private clearRingTimer(callId: string): void {
+    const timer = this.ringTimers.get(callId);
+    if (timer) {
+      clearTimeout(timer);
+      this.ringTimers.delete(callId);
+    }
+  }
+
+  private armRingTimer(callId: string): void {
+    this.clearRingTimer(callId);
+    this.ringTimers.set(
+      callId,
+      setTimeout(() => {
+        this.ringTimers.delete(callId);
+        void this.expireCall(callId);
+      }, RING_TIMEOUT_MS),
+    );
+  }
+
+  /** Sonnerie ecoulee sans reponse : appel manque des deux cotes. */
+  private async expireCall(callId: string): Promise<void> {
+    const call = await this.callState.get(callId);
+    // `startedAt` renseigne = deja decroche, le minuteur n'a plus lieu d'etre.
+    if (!call || call.startedAt) return;
+
+    for (const userId of [call.callerId, call.calleeId]) {
+      this.server
+        .to(userRoomKey(userId))
+        .emit('call-timeout', { callId });
+    }
+    await this.recordCall(call, 'missed');
+    await this.callState.delete(callId);
+    await this.notifyMissedCall(call);
+  }
+
+  /** Previent le destinataire qu'il a manque un appel. */
+  private async notifyMissedCall(call: ActiveCall): Promise<void> {
+    const caller = await this.usersService.findByIdOrNull(call.callerId);
+    if (!caller) return;
+    await this.notificationsService
+      .sendToUsers([call.calleeId], {
+        title: caller.name,
+        body:
+          call.type === 'video'
+            ? 'Appel vidéo manqué'
+            : 'Appel manqué',
+        data: { type: 'missed-call', callId: call.callId },
       })
       .catch(() => undefined);
   }
@@ -253,43 +322,97 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     data: { callId: string; calleeId: string; callType: string },
   ) {
     const userId = client.data.userId as string | undefined;
-    if (!userId) return;
+    if (!userId || !data?.callId || !data?.calleeId) return;
+    if (data.calleeId === userId) return;
+
+    const callType = data.callType === 'video' ? 'video' : 'audio';
+
+    // Le destinataire doit exister et partager l'organisation de l'appelant :
+    // un identifiant est vite devine, le socket ne doit pas servir a sonner
+    // chez n'importe qui.
+    const [caller, callee] = await Promise.all([
+      this.usersService.findByIdOrNull(userId),
+      this.usersService.findByIdOrNull(data.calleeId),
+    ]);
+    if (!caller || !callee) return;
+    if (
+      !caller.organizationId ||
+      caller.organizationId !== callee.organizationId
+    ) {
+      client.emit('call-unavailable', { callId: data.callId });
+      return;
+    }
 
     const calleeSockets = await this.server
       .in(userRoomKey(data.calleeId))
       .fetchSockets();
 
-    if (calleeSockets.length === 0) {
-      client.emit('call-unavailable', { callId: data.callId });
-      await this.callsService
-        .record({
-          callerId: userId,
-          calleeId: data.calleeId,
-          type: data.callType,
-          status: 'missed',
-        })
-        .catch(() => undefined);
-      return;
-    }
-
     await this.callState.set({
       callId: data.callId,
       callerId: userId,
       calleeId: data.calleeId,
-      type: data.callType,
+      type: callType,
       startedAt: null,
     });
 
-    const caller = await this.usersService.findById(userId);
-    this.server.to(userRoomKey(data.calleeId)).emit('incoming-call', {
-      callId: data.callId,
-      callType: data.callType,
-      caller: {
-        id: caller.id,
-        name: caller.name,
-        avatar: caller.avatar,
-      },
-    });
+    if (calleeSockets.length > 0) {
+      this.server.to(userRoomKey(data.calleeId)).emit('incoming-call', {
+        callId: data.callId,
+        callType,
+        caller: {
+          id: caller.id,
+          name: caller.name,
+          avatar: caller.avatar,
+        },
+      });
+    }
+
+    // Notification poussee meme quand un socket est ouvert : sur Android le
+    // socket survit quelques minutes en arriere-plan mais l'ecran reste
+    // eteint. L'application masque la banniere si elle sonne deja.
+    await this.notificationsService
+      .sendToUsers([data.calleeId], {
+        title: caller.name,
+        body:
+          callType === 'video' ? 'Appel vidéo entrant' : 'Appel entrant',
+        data: {
+          type: 'incoming-call',
+          callId: data.callId,
+          callType,
+        },
+      })
+      .catch(() => undefined);
+
+    this.armRingTimer(data.callId);
+  }
+
+  /**
+   * Appel en attente pour ce client, s'il en reste un.
+   *
+   * L'application interroge le serveur a chaque reconnexion : un appel lance
+   * pendant qu'elle dormait en arriere-plan aurait sinon sonne dans le vide,
+   * l'evenement `incoming-call` etant emis vers un socket deja ferme.
+   */
+  @SubscribeMessage('call-sync')
+  async handleCallSync(@ConnectedSocket() client: Socket) {
+    const userId = client.data.userId as string | undefined;
+    if (!userId) return;
+
+    for (const call of await this.callState.findByUser(userId)) {
+      if (call.calleeId !== userId || call.startedAt) continue;
+      const caller = await this.usersService.findByIdOrNull(call.callerId);
+      if (!caller) continue;
+      client.emit('incoming-call', {
+        callId: call.callId,
+        callType: call.type,
+        caller: {
+          id: caller.id,
+          name: caller.name,
+          avatar: caller.avatar,
+        },
+      });
+      return;
+    }
   }
 
   @SubscribeMessage('call-accept')
@@ -297,6 +420,13 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { callId: string },
   ) {
+    const userId = client.data.userId as string | undefined;
+    const pending = await this.callState.get(data?.callId);
+    // Seul le destinataire decroche : accepter a sa place ouvrirait le flux
+    // media vers un tiers.
+    if (!pending || !userId || pending.calleeId !== userId) return;
+
+    this.clearRingTimer(data.callId);
     // markStarted relit, date et reecrit : avec une Map locale la mutation
     // par reference suffisait, plus maintenant que l'etat est partage.
     const call = await this.callState.markStarted(data.callId);
@@ -309,14 +439,18 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @SubscribeMessage('call-reject')
   async handleCallReject(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { callId: string },
+    @MessageBody() data: { callId: string; busy?: boolean },
   ) {
-    const call = await this.callState.get(data.callId);
-    if (!call) return;
-    this.server
-      .to(userRoomKey(call.callerId))
-      .emit('call-rejected', { callId: data.callId });
-    await this.recordCall(call, 'rejected');
+    const userId = client.data.userId as string | undefined;
+    const call = await this.callState.get(data?.callId);
+    if (!call || !userId || call.calleeId !== userId) return;
+
+    this.clearRingTimer(data.callId);
+    this.server.to(userRoomKey(call.callerId)).emit('call-rejected', {
+      callId: data.callId,
+      busy: !!data.busy,
+    });
+    await this.recordCall(call, data.busy ? 'missed' : 'rejected');
     await this.callState.delete(data.callId);
   }
 
@@ -325,13 +459,17 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { callId: string },
   ) {
-    const call = await this.callState.get(data.callId);
-    if (!call) return;
+    const userId = client.data.userId as string | undefined;
+    const call = await this.callState.get(data?.callId);
+    if (!call || !userId || call.callerId !== userId) return;
+
+    this.clearRingTimer(data.callId);
     this.server
       .to(userRoomKey(call.calleeId))
       .emit('call-cancelled', { callId: data.callId });
     await this.recordCall(call, 'missed');
     await this.callState.delete(data.callId);
+    await this.notifyMissedCall(call);
   }
 
   @SubscribeMessage('call-end')
@@ -339,9 +477,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { callId: string },
   ) {
-    const call = await this.callState.get(data.callId);
-    if (!call) return;
     const userId = client.data.userId as string | undefined;
+    const call = await this.callState.get(data?.callId);
+    if (!call || !userId) return;
+    if (userId !== call.callerId && userId !== call.calleeId) return;
+
+    this.clearRingTimer(data.callId);
     const otherId =
       userId === call.callerId ? call.calleeId : call.callerId;
     this.server
@@ -351,33 +492,59 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     await this.callState.delete(data.callId);
   }
 
+  /**
+   * Relais de signalisation.
+   *
+   * Le destinataire est lu dans l'etat de l'appel et non dans le message :
+   * un client pourrait sinon pousser une offre SDP vers n'importe quel
+   * utilisateur connecte.
+   */
+  private async signalingTarget(
+    client: Socket,
+    callId: string,
+  ): Promise<string | null> {
+    const userId = client.data.userId as string | undefined;
+    if (!userId || !callId) return null;
+    const call = await this.callState.get(callId);
+    if (!call) return null;
+    if (userId === call.callerId) return call.calleeId;
+    if (userId === call.calleeId) return call.callerId;
+    return null;
+  }
+
   @SubscribeMessage('webrtc-offer')
-  handleWebrtcOffer(
+  async handleWebrtcOffer(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { callId: string; to: string; sdp: unknown },
+    @MessageBody() data: { callId: string; sdp: unknown },
   ) {
+    const to = await this.signalingTarget(client, data?.callId);
+    if (!to) return;
     this.server
-      .to(userRoomKey(data.to))
+      .to(userRoomKey(to))
       .emit('webrtc-offer', { callId: data.callId, sdp: data.sdp });
   }
 
   @SubscribeMessage('webrtc-answer')
-  handleWebrtcAnswer(
+  async handleWebrtcAnswer(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { callId: string; to: string; sdp: unknown },
+    @MessageBody() data: { callId: string; sdp: unknown },
   ) {
+    const to = await this.signalingTarget(client, data?.callId);
+    if (!to) return;
     this.server
-      .to(userRoomKey(data.to))
+      .to(userRoomKey(to))
       .emit('webrtc-answer', { callId: data.callId, sdp: data.sdp });
   }
 
   @SubscribeMessage('webrtc-ice')
-  handleWebrtcIce(
+  async handleWebrtcIce(
     @ConnectedSocket() client: Socket,
     @MessageBody()
-    data: { callId: string; to: string; candidate: unknown },
+    data: { callId: string; candidate: unknown },
   ) {
-    this.server.to(userRoomKey(data.to)).emit('webrtc-ice', {
+    const to = await this.signalingTarget(client, data?.callId);
+    if (!to) return;
+    this.server.to(userRoomKey(to)).emit('webrtc-ice', {
       callId: data.callId,
       candidate: data.candidate,
     });

@@ -11,6 +11,33 @@ const formatElapsed = (seconds: number) => {
   return `${m}:${s.toString().padStart(2, '0')}`;
 };
 
+const ControlButton = ({
+  icon,
+  active,
+  onPress,
+  label,
+}: {
+  icon: React.ComponentProps<typeof Ionicons>['name'];
+  active?: boolean;
+  onPress: () => void;
+  label: string;
+}) => (
+  <TouchableOpacity
+    onPress={onPress}
+    activeOpacity={0.8}
+    accessibilityLabel={label}
+    className={`w-14 h-14 rounded-full items-center justify-center mx-2 ${
+      active ? 'bg-white' : 'bg-white/20'
+    }`}
+  >
+    <Ionicons
+      name={icon}
+      size={24}
+      color={active ? '#0f172a' : '#ffffff'}
+    />
+  </TouchableOpacity>
+);
+
 export default function CallScreen() {
   const status = useCallStore((s) => s.status);
   const peer = useCallStore((s) => s.peer);
@@ -19,14 +46,17 @@ export default function CallScreen() {
   const remoteStream = useCallStore((s) => s.remoteStream);
   const muted = useCallStore((s) => s.muted);
   const cameraOff = useCallStore((s) => s.cameraOff);
+  const speaker = useCallStore((s) => s.speaker);
   const startedAt = useCallStore((s) => s.startedAt);
+  const endedReason = useCallStore((s) => s.endedReason);
 
   const [elapsed, setElapsed] = useState(0);
 
   const visible =
     status === 'outgoing' ||
     status === 'connecting' ||
-    status === 'active';
+    status === 'active' ||
+    status === 'ended';
 
   useEffect(() => {
     if (status !== 'active' || !startedAt) {
@@ -44,14 +74,21 @@ export default function CallScreen() {
   const isVideo = callType === 'video';
   const showRemoteVideo =
     isVideo && status === 'active' && !!remoteStream && !!RTCView;
-  const showLocalVideo = isVideo && !!localStream && !cameraOff && !!RTCView;
+  const showLocalVideo =
+    isVideo &&
+    status !== 'ended' &&
+    !!localStream &&
+    !cameraOff &&
+    !!RTCView;
 
   const statusLabel =
     status === 'outgoing'
-      ? 'Calling…'
+      ? 'Sonnerie…'
       : status === 'connecting'
-      ? 'Connecting…'
-      : formatElapsed(elapsed);
+        ? 'Connexion…'
+        : status === 'ended'
+          ? endedReason || 'Appel terminé.'
+          : formatElapsed(elapsed);
 
   return (
     <Modal visible={visible} animationType="slide">
@@ -64,7 +101,7 @@ export default function CallScreen() {
             style={{ flex: 1 }}
           />
         ) : (
-          <View className="flex-1 items-center justify-center">
+          <View className="flex-1 items-center justify-center px-8">
             <View className="w-32 h-32 rounded-full bg-primary-700 items-center justify-center overflow-hidden mb-5">
               {peer?.avatar ? (
                 <Image
@@ -79,10 +116,10 @@ export default function CallScreen() {
                 </Text>
               )}
             </View>
-            <Text className="text-white text-2xl font-bold">
-              {peer?.name || 'Unknown'}
+            <Text className="text-white text-2xl font-bold text-center">
+              {peer?.name || 'Inconnu'}
             </Text>
-            <Text className="text-slate-300 text-base mt-2">
+            <Text className="text-slate-300 text-base mt-2 text-center">
               {statusLabel}
             </Text>
           </View>
@@ -107,62 +144,60 @@ export default function CallScreen() {
         {showRemoteVideo && (
           <View className="absolute top-14 left-0 right-0 items-center">
             <Text className="text-white text-lg font-bold">
-              {peer?.name || 'Unknown'}
+              {peer?.name || 'Inconnu'}
             </Text>
             <Text className="text-slate-200 text-sm">{statusLabel}</Text>
           </View>
         )}
 
         {/* Controls */}
-        <View className="absolute bottom-16 left-0 right-0 flex-row items-center justify-center">
-          <TouchableOpacity
-            onPress={() => callManager.toggleMute()}
-            activeOpacity={0.8}
-            className={`w-14 h-14 rounded-full items-center justify-center mx-3 ${
-              muted ? 'bg-white' : 'bg-white/20'
-            }`}
-          >
-            <Ionicons
-              name={muted ? 'mic-off' : 'mic'}
-              size={24}
-              color={muted ? '#0f172a' : '#ffffff'}
+        {status !== 'ended' && (
+          <View className="absolute bottom-16 left-0 right-0 flex-row items-center justify-center">
+            <ControlButton
+              icon={muted ? 'mic-off' : 'mic'}
+              active={muted}
+              label={muted ? 'Réactiver le micro' : 'Couper le micro'}
+              onPress={() => callManager.toggleMute()}
             />
-          </TouchableOpacity>
 
-          {isVideo && (
-            <TouchableOpacity
-              onPress={() => callManager.toggleCamera()}
-              activeOpacity={0.8}
-              className={`w-14 h-14 rounded-full items-center justify-center mx-3 ${
-                cameraOff ? 'bg-white' : 'bg-white/20'
-              }`}
-            >
-              <Ionicons
-                name={cameraOff ? 'videocam-off' : 'videocam'}
-                size={24}
-                color={cameraOff ? '#0f172a' : '#ffffff'}
+            <ControlButton
+              icon={speaker ? 'volume-high' : 'volume-medium'}
+              active={speaker}
+              label={
+                speaker ? 'Passer sur l’écouteur' : 'Passer sur le haut-parleur'
+              }
+              onPress={() => callManager.toggleSpeaker()}
+            />
+
+            {isVideo && (
+              <ControlButton
+                icon={cameraOff ? 'videocam-off' : 'videocam'}
+                active={cameraOff}
+                label={
+                  cameraOff ? 'Activer la caméra' : 'Désactiver la caméra'
+                }
+                onPress={() => callManager.toggleCamera()}
               />
-            </TouchableOpacity>
-          )}
+            )}
 
-          {isVideo && (
+            {isVideo && (
+              <ControlButton
+                icon="camera-reverse"
+                label="Changer de caméra"
+                onPress={() => callManager.switchCamera()}
+              />
+            )}
+
             <TouchableOpacity
-              onPress={() => callManager.switchCamera()}
-              activeOpacity={0.8}
-              className="w-14 h-14 rounded-full items-center justify-center mx-3 bg-white/20"
+              onPress={() => callManager.endCall()}
+              activeOpacity={0.85}
+              accessibilityLabel="Raccrocher"
+              className="w-16 h-16 rounded-full items-center justify-center mx-2 bg-red-500"
             >
-              <Ionicons name="camera-reverse" size={24} color="#ffffff" />
+              <Ionicons name="call" size={28} color="#ffffff" />
             </TouchableOpacity>
-          )}
-
-          <TouchableOpacity
-            onPress={() => callManager.endCall()}
-            activeOpacity={0.85}
-            className="w-16 h-16 rounded-full items-center justify-center mx-3 bg-red-500"
-          >
-            <Ionicons name="call" size={28} color="#ffffff" />
-          </TouchableOpacity>
-        </View>
+          </View>
+        )}
       </View>
     </Modal>
   );

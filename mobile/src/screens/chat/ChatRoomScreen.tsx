@@ -680,8 +680,8 @@ export default function ChatRoomScreen() {
     if (!otherMember) return;
     if (!isCallSupported()) {
       Alert.alert(
-        'Calls unavailable',
-        'Please update to the latest app build to make calls.',
+        'Appels indisponibles',
+        "Cette version de l'application ne prend pas en charge les appels.",
       );
       return;
     }
@@ -695,7 +695,10 @@ export default function ChatRoomScreen() {
         type,
       );
     } catch (e: any) {
-      Alert.alert('Call failed', e?.message || 'Please try again.');
+      Alert.alert(
+        "Impossible d'appeler",
+        e?.message || 'Veuillez réessayer.',
+      );
     }
   };
 

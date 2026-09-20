@@ -136,23 +136,40 @@ export function useGlobalSocket() {
       });
 
       // ---- WebRTC call signaling ----
+      // Un appel a pu sonner pendant que l'application dormait en
+      // arriere-plan, socket coupe : a chaque (re)connexion on redemande au
+      // serveur s'il reste un appel en attente.
+      socket.on('connect', () => {
+        callManager.syncPendingCall();
+      });
       socket.on('incoming-call', (data: any) => {
         callManager.receiveIncomingCall(data);
       });
-      socket.on('call-accepted', () => {
-        callManager.onCallAccepted();
+      socket.on('call-accepted', (data: any) => {
+        callManager.onCallAccepted(data);
       });
-      socket.on('call-rejected', () => {
-        callManager.onCallEnded();
+      socket.on('call-rejected', (data: any) => {
+        callManager.onCallEnded({
+          callId: data?.callId,
+          reason: data?.busy ? 'busy' : 'rejected',
+        });
       });
-      socket.on('call-cancelled', () => {
-        callManager.onCallEnded();
+      socket.on('call-cancelled', (data: any) => {
+        // L'appelant a raccroche avant qu'on decroche : rien a expliquer,
+        // la sonnerie s'arrete simplement.
+        callManager.onCallEnded({ callId: data?.callId });
       });
-      socket.on('call-ended', () => {
-        callManager.onCallEnded();
+      socket.on('call-ended', (data: any) => {
+        callManager.onCallEnded({ callId: data?.callId });
       });
-      socket.on('call-unavailable', () => {
-        callManager.onCallEnded();
+      socket.on('call-timeout', (data: any) => {
+        callManager.onCallEnded({ callId: data?.callId, reason: 'timeout' });
+      });
+      socket.on('call-unavailable', (data: any) => {
+        callManager.onCallEnded({
+          callId: data?.callId,
+          reason: 'unavailable',
+        });
       });
       socket.on('webrtc-offer', (data: any) => {
         callManager.onWebrtcOffer(data);
@@ -163,6 +180,9 @@ export function useGlobalSocket() {
       socket.on('webrtc-ice', (data: any) => {
         callManager.onWebrtcIce(data);
       });
+
+      // Le socket a pu se connecter avant que l'ecouteur ci-dessus existe.
+      if (socket.connected) callManager.syncPendingCall();
     })();
 
     return () => {

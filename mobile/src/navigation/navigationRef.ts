@@ -6,6 +6,17 @@ import { useAuthStore } from '../store/useAuthStore';
 export const navigationRef =
   createNavigationContainerRef<RootStackParamList>();
 
+/** Ouvre l'onglet Appels (notification d'appel manque). */
+export function navigateToCalls() {
+  if (!navigationRef.isReady()) return;
+  // `Main` porte le navigateur d'onglets : la cible reelle est imbriquee,
+  // ce que le typage du stack racine ne decrit pas.
+  (navigationRef.navigate as (name: string, params?: object) => void)(
+    'Main',
+    { screen: 'Calls' },
+  );
+}
+
 export function navigateToRoom(roomId: string) {
   if (!navigationRef.isReady()) return;
 

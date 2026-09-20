@@ -3,15 +3,43 @@ import * as Device from 'expo-device';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import api from './api';
+import { useCallStore } from '../store/useCallStore';
+
+/** Canal Android des appels : sonnerie et priorite maximale. */
+export const CALL_CHANNEL_ID = 'calls';
 
 // How notifications behave while the app is in the foreground.
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-  }),
+  handleNotification: async (notification) => {
+    const data = notification.request.content.data as
+      | { type?: string; callId?: string }
+      | undefined;
+
+    // L'appel sonne deja dans l'application : la notification poussee ne
+    // sert qu'a reveiller un telephone en veille, l'afficher en double
+    // par-dessus l'ecran d'appel n'apporte rien.
+    if (data?.type === 'incoming-call') {
+      const call = useCallStore.getState();
+      const ringing =
+        call.status !== 'idle' &&
+        (!data.callId || data.callId === call.callId);
+      if (ringing) {
+        return {
+          shouldShowBanner: false,
+          shouldShowList: false,
+          shouldPlaySound: false,
+          shouldSetBadge: false,
+        };
+      }
+    }
+
+    return {
+      shouldShowBanner: true,
+      shouldShowList: true,
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+    };
+  },
 });
 
 const resolveProjectId = (): string | undefined =>
@@ -34,6 +62,17 @@ export async function registerForPushNotifications(): Promise<string | null> {
       importance: Notifications.AndroidImportance.MAX,
       vibrationPattern: [0, 250, 250, 250],
       lightColor: '#16a34a',
+    });
+    await Notifications.setNotificationChannelAsync(CALL_CHANNEL_ID, {
+      name: 'Appels',
+      importance: Notifications.AndroidImportance.MAX,
+      vibrationPattern: [0, 700, 900, 700, 900],
+      lightColor: '#16a34a',
+      // Contourne le mode silencieux : un appel doit reveiller, pas
+      // attendre sagement dans le volet des notifications.
+      bypassDnd: true,
+      lockscreenVisibility:
+        Notifications.AndroidNotificationVisibility.PUBLIC,
     });
   }
 
