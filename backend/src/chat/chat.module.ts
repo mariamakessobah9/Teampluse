@@ -5,7 +5,6 @@ import { Message } from './entities/message.entity';
 import { ChatService } from './chat.service';
 import { ChatController } from './chat.controller';
 import { ChatGateway } from './chat.gateway';
-import { CallStateService } from './call-state.service';
 import { UsersModule } from '../users/users.module';
 import { AuthModule } from '../auth/auth.module';
 import { NotificationsModule } from '../notifications/notifications.module';
@@ -19,8 +18,8 @@ import { CallsModule } from '../calls/calls.module';
     NotificationsModule,
     CallsModule,
   ],
-  providers: [ChatService, ChatGateway, CallStateService],
+  providers: [ChatService, ChatGateway],
   controllers: [ChatController],
-  exports: [CallStateService],
+  exports: [],
 })
 export class ChatModule {}

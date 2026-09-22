@@ -4,6 +4,7 @@ import { User } from './users/user.entity';
 import { ChatRoom } from './chat/entities/chat-room.entity';
 import { Message } from './chat/entities/message.entity';
 import { Call } from './calls/call.entity';
+import { CallParticipant } from './calls/call-participant.entity';
 import { Organization } from './organizations/organization.entity';
 import { Invitation } from './organizations/invitation.entity';
 
@@ -21,6 +22,7 @@ export const entities = [
   ChatRoom,
   Message,
   Call,
+  CallParticipant,
   Organization,
   Invitation,
 ];

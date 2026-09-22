@@ -1,7 +1,7 @@
 import { Controller, Get } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SkipThrottle, Throttle } from '@nestjs/throttler';
-import { CallStateService } from '../chat/call-state.service';
+import { CallStateService } from '../calls/call-state.service';
 import { MailService } from '../mail/mail.service';
 
 /**
@@ -51,7 +51,14 @@ export class HealthController {
           'CLOUDINARY_API_KEY',
           'CLOUDINARY_API_SECRET',
         ),
-        turn: this.set('TURN_URLS'),
+        // Sans les trois variables LiveKit, aucun appel ne peut s'etablir :
+        // la demande de jeton repond 503 et l'application affiche que les
+        // appels sont indisponibles.
+        calls: this.set(
+          'LIVEKIT_URL',
+          'LIVEKIT_API_KEY',
+          'LIVEKIT_API_SECRET',
+        ),
       },
     };
   }

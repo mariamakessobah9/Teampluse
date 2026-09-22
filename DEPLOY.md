@@ -66,6 +66,9 @@ Service backend → **Variables** :
 | `CLOUDINARY_CLOUD_NAME` | … |
 | `CLOUDINARY_API_KEY` | … |
 | `CLOUDINARY_API_SECRET` | … |
+| `LIVEKIT_URL` | `wss://<projet>.livekit.cloud` — voir §5. Sans les trois variables LiveKit, les appels sont désactivés |
+| `LIVEKIT_API_KEY` | … |
+| `LIVEKIT_API_SECRET` | … |
 
 À ne **pas** définir :
 
@@ -88,7 +91,7 @@ Networking : si le port affiché ne correspond pas à celui du log
 ```bash
 curl https://<ton-domaine>.up.railway.app/api/health
 # {"status":"ok","uptime":12.34,"realtime":"redis",
-#  "services":{"mail":true,"uploads":true,"turn":false}}
+#  "services":{"mail":true,"uploads":true,"calls":true}}
 ```
 
 `services` indique quelles intégrations sont configurées. C'est important
@@ -246,62 +249,60 @@ forcer une adresse : `EXPO_PUBLIC_API_HOST=192.168.1.42`.
   `fetchSockets()`), et l'état des appels est partagé dans Redis. Augmenter
   `numReplicas` est sûr une fois `REDIS_URL` en place — et seulement à ce
   moment-là.
-- **Appels WebRTC.** La signalisation passe par Socket.IO. Le média est en
-  pair-à-pair : voir la section TURN ci-dessous.
+- **Appels.** La sonnerie et l'état des appels passent par Socket.IO ; le
+  média passe par LiveKit (voir §5).
 - **Plan Railway.** Sur le plan gratuit, le service peut être mis en veille et
   la première requête après inactivité met plusieurs secondes à répondre.
 
 ---
 
-## 5. TURN (appels audio/vidéo)
+## 5. Appels audio/vidéo (LiveKit)
 
-La signalisation WebRTC passe par Socket.IO, mais l'audio et la vidéo vont
-directement d'un téléphone à l'autre. STUN suffit à découvrir l'adresse
-publique dans la plupart des cas ; derrière un **NAT symétrique** — fréquent
-sur les réseaux mobiles — la connexion directe est impossible et il faut
-relayer le flux par un serveur **TURN**. Sans lui, l'appel semble aboutir mais
-reste muet et sans image.
+Les appels — à deux comme en groupe — passent par un **SFU LiveKit** : chaque
+téléphone envoie un seul flux montant, que le SFU redistribue aux autres. En
+pair-à-pair, un appel à cinq imposerait quatre flux montants à chaque
+téléphone ; c'est ce qui rend l'appel de groupe tenable sur réseau mobile.
+LiveKit fournit aussi le relais TURN : il n'y a plus de serveur TURN à gérer.
+
+Le backend garde ce qu'un SFU ne sait pas faire : faire sonner, savoir qui a
+refusé, classer les appels manqués, archiver l'historique. Il délivre à chaque
+participant un jeton d'accès limité à la salle de son appel
+(`GET /api/calls/:callId/token`), après avoir vérifié qu'il y est invité.
 
 ### Configuration
 
-Les serveurs ICE sont servis par `GET /api/calls/ice-servers` (authentifié) et
-non écrits en dur dans l'application : les identifiants TURN tournent, et une
-valeur embarquée dans le bundle imposerait une republication sur le Play Store
-à chaque changement. Le client les récupère au moment de l'appel, avec un cache
-de 10 minutes et un repli STUN si l'API est injoignable.
+1. Créer un projet sur <https://cloud.livekit.io> (l'offre gratuite suffit
+   pour démarrer).
+2. **Settings → Keys** → créer une clé.
+3. Renseigner sur le service backend Railway :
 
-| Variable | Rôle |
+| Variable | Valeur |
 |---|---|
-| `TURN_URLS` | Liste séparée par des virgules, ex. `turn:host:3478,turns:host:5349` |
-| `TURN_SECRET` | **Mode recommandé.** Secret partagé, identifiants éphémères dérivés par HMAC |
-| `TURN_TTL_SECONDS` | Durée de validité de ces identifiants (défaut `86400`) |
-| `TURN_USERNAME` / `TURN_PASSWORD` | Repli statique, utilisé seulement si `TURN_SECRET` est absent |
-| `STUN_URLS` | Optionnel, deux serveurs Google par défaut |
+| `LIVEKIT_URL` | `wss://<projet>.livekit.cloud` |
+| `LIVEKIT_API_KEY` | clé API |
+| `LIVEKIT_API_SECRET` | secret API — ne quitte jamais le serveur |
 
-Privilégier `TURN_SECRET` : le secret ne quitte jamais le serveur, et les
-identifiants distribués expirent. Les identifiants statiques sont envoyés tels
-quels à chaque client et ne changent jamais.
-
-### Choisir un fournisseur
-
-- **Service managé** (Twilio, Metered, Xirsys…) : le plus rapide. Facturé au
-  Go relayé. Prendre l'option « identifiants éphémères » quand elle existe.
-- **coturn auto-hébergé** : moins cher à volume élevé, mais demande un serveur
-  avec IP publique et des ports ouverts. Lancer avec `--use-auth-secret` et
-  `--static-auth-secret=<TURN_SECRET>` pour correspondre au mode recommandé.
-  Railway ne convient pas : TURN a besoin d'UDP, que la plateforme ne route pas.
+L'application mobile n'a besoin d'aucune configuration : l'URL LiveKit lui est
+transmise avec le jeton.
 
 ### Vérifier
 
-Sans `TURN_URLS`, les logs affichent au premier appel :
+`GET /api/health` doit renvoyer `"calls": true`. Sans les variables, les logs
+affichent au premier appel :
 
 ```
-WARN [Ice] TURN_URLS absente : appels en pair-a-pair uniquement.
+WARN [LiveKit] LIVEKIT_URL / LIVEKIT_API_KEY / LIVEKIT_API_SECRET absentes : les appels sont indisponibles.
 ```
 
-Une fois configuré, `GET /api/calls/ice-servers` renvoie une entrée `turn:` en
-plus des `stun:`, avec un `username` de la forme `<timestamp>:<userId>` en mode
-éphémère.
+et l'application affiche « Les appels ne sont pas disponibles pour le
+moment. »
+
+### Build mobile
+
+Le SDK LiveKit embarque du code natif : **tout build antérieur à ce
+changement ne peut plus passer d'appel** (il utilisait l'ancien protocole
+pair-à-pair). Refaire le dev build, et publier une nouvelle version sur le
+Play Store en même temps que le déploiement du backend.
 
 ---
 
