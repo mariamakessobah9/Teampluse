@@ -23,3 +23,6 @@ backend/test/**/*.js.map
 # Firebase service account keys — secret, never commit
 *-firebase-adminsdk-*.json
 google-service-account*.json
+
+# Reglages Claude Code propres a cette machine
+.claude/settings.local.json
