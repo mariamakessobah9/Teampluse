@@ -26,3 +26,7 @@ google-service-account*.json
 
 # Reglages Claude Code propres a cette machine
 .claude/settings.local.json
+
+# Artefacts de build mobile, trop lourds pour le depot
+*.aab
+*.apk
