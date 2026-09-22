@@ -13,6 +13,9 @@ export default function IncomingCallModal() {
   const status = useCallStore((s) => s.status);
   const peer = useCallStore((s) => s.peer);
   const callType = useCallStore((s) => s.callType);
+  const mode = useCallStore((s) => s.mode);
+  const title = useCallStore((s) => s.title);
+  const members = useCallStore((s) => s.members);
 
   const visible = status === 'incoming';
 
@@ -27,9 +30,13 @@ export default function IncomingCallModal() {
       <View className="flex-1 bg-dark-300 items-center justify-between py-20">
         <View className="items-center mt-10">
           <Text className="text-slate-300 text-base mb-6">
-            {callType === 'video'
-              ? 'Appel vidéo entrant'
-              : 'Appel entrant'}
+            {mode === 'group'
+              ? callType === 'video'
+                ? 'Appel vidéo de groupe'
+                : 'Appel de groupe'
+              : callType === 'video'
+                ? 'Appel vidéo entrant'
+                : 'Appel entrant'}
           </Text>
           <View className="w-32 h-32 rounded-full bg-primary-700 items-center justify-center overflow-hidden mb-5">
             {peer?.avatar ? (
@@ -45,9 +52,15 @@ export default function IncomingCallModal() {
               </Text>
             )}
           </View>
-          <Text className="text-white text-2xl font-bold">
-            {peer?.name || 'Inconnu'}
+          <Text className="text-white text-2xl font-bold text-center px-8">
+            {title || peer?.name || 'Inconnu'}
           </Text>
+          {mode === 'group' && (
+            <Text className="text-slate-300 text-sm mt-2 text-center px-8">
+              {peer?.name ? `${peer.name} vous appelle` : ''}
+              {members.length > 1 ? ` · ${members.length + 1} participants` : ''}
+            </Text>
+          )}
         </View>
 
         <View className="flex-row items-center justify-around w-full px-12">

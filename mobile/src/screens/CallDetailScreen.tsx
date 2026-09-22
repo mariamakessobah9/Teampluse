@@ -17,7 +17,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from 'nativewind';
 import { useAuthStore } from '../store/useAuthStore';
+import { useChatStore } from '../store/useChatStore';
 import { callManager, isCallSupported } from '../services/callManager';
+import { summarizeCall } from '../utils/callHistory';
 import { RootStackParamList } from '../types';
 
 type Route = RouteProp<RootStackParamList, 'CallDetail'>;
@@ -56,8 +58,10 @@ export default function CallDetailScreen() {
   const headerAccent = isDark ? '#86efac' : '#15803d';
   const mutedIcon = isDark ? '#94a3b8' : '#4b5563';
 
-  const isOutgoing = call.callerId === currentUser?.id;
-  const other = isOutgoing ? call.callee : call.caller;
+  const rooms = useChatStore((s) => s.rooms);
+  const summary = summarizeCall(call, currentUser?.id, rooms);
+  const { isOutgoing, isGroup } = summary;
+  const other = summary.avatarUser;
   const missed = call.status === 'missed';
   const { day, time } = formatDateTime(call.createdAt);
 
@@ -71,6 +75,7 @@ export default function CallDetailScreen() {
       : 'Manqué';
 
   const startCall = async (type: 'audio' | 'video') => {
+    if (!summary.target) return;
     if (!isCallSupported()) {
       Alert.alert(
         'Appels indisponibles',
@@ -79,10 +84,7 @@ export default function CallDetailScreen() {
       return;
     }
     try {
-      await callManager.startCall(
-        { id: other.id, name: other.name, avatar: other.avatar },
-        type,
-      );
+      await callManager.startCall(summary.target, type);
     } catch (e: any) {
       Alert.alert(
         "Impossible d'appeler",
@@ -140,7 +142,9 @@ export default function CallDetailScreen() {
         {/* Person */}
         <View className="items-center mt-6 mb-4">
           <View className="w-24 h-24 rounded-full border-[3px] border-primary-500 items-center justify-center bg-primary-100 dark:bg-primary-900 overflow-hidden">
-            {other?.avatar ? (
+            {isGroup ? (
+              <Ionicons name="people" size={40} color={headerAccent} />
+            ) : other?.avatar ? (
               <Image
                 source={{ uri: other.avatar }}
                 className="w-24 h-24"
@@ -153,8 +157,8 @@ export default function CallDetailScreen() {
               </Text>
             )}
           </View>
-          <Text className="text-ink-900 dark:text-white text-2xl font-bold mt-3">
-            {other?.name || 'Inconnu'}
+          <Text className="text-ink-900 dark:text-white text-2xl font-bold mt-3 text-center px-6">
+            {summary.title}
           </Text>
           <View className="flex-row items-center mt-1">
             <Ionicons
@@ -169,7 +173,8 @@ export default function CallDetailScreen() {
                   : 'text-ink-500 dark:text-slate-300'
               }`}
             >
-              Appel {isOutgoing ? 'sortant' : 'entrant'} ·{' '}
+              Appel {isGroup ? 'de groupe ' : ''}
+              {isOutgoing ? 'sortant' : 'entrant'} ·{' '}
               {call.type === 'video' ? 'vidéo' : 'audio'}
             </Text>
           </View>
@@ -235,20 +240,75 @@ export default function CallDetailScreen() {
           )}
         </View>
 
+        {isGroup && (call.participants?.length ?? 0) > 0 && (
+          <View className="mx-4 mt-4 bg-surface-card dark:bg-dark-100 rounded-2xl px-4 py-1">
+            {call.participants!.map((p, i) => (
+              <View key={p.id}>
+                {i > 0 && (
+                  <View className="h-px bg-ink-200/40 dark:bg-slate-700/50" />
+                )}
+                <TouchableOpacity
+                  onPress={() =>
+                    p.userId !== currentUser?.id &&
+                    nav.navigate('UserProfile', { userId: p.userId })
+                  }
+                  activeOpacity={0.7}
+                  className="flex-row items-center py-3"
+                >
+                  <View className="w-10 h-10 rounded-full bg-primary-100 dark:bg-primary-900 items-center justify-center overflow-hidden mr-3">
+                    {p.user?.avatar ? (
+                      <Image
+                        source={{ uri: p.user.avatar }}
+                        className="w-10 h-10"
+                        cachePolicy="memory-disk"
+                      />
+                    ) : (
+                      <Text className="text-primary-700 dark:text-primary-300 font-bold">
+                        {(p.user?.name || '?').charAt(0).toUpperCase()}
+                      </Text>
+                    )}
+                  </View>
+                  <View className="flex-1">
+                    <Text className="text-ink-900 dark:text-white font-medium">
+                      {p.userId === currentUser?.id ? 'Vous' : p.user?.name}
+                      {p.isInitiator ? ' · a appelé' : ''}
+                    </Text>
+                    <Text
+                      className={`text-xs ${
+                        p.status === 'joined'
+                          ? 'text-ink-400 dark:text-slate-400'
+                          : 'text-red-500'
+                      }`}
+                    >
+                      {p.status === 'joined'
+                        ? p.duration
+                          ? formatDuration(p.duration)
+                          : 'A participé'
+                        : p.status === 'declined'
+                          ? 'A refusé'
+                          : 'Sans réponse'}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
+        )}
+
         {/* View full profile */}
-        <TouchableOpacity
-          onPress={() =>
-            nav.navigate('UserProfile', { userId: other.id })
-          }
-          activeOpacity={0.7}
-          className="mx-4 mt-4 bg-surface-card dark:bg-dark-100 rounded-2xl px-4 py-4 flex-row items-center"
-        >
-          <Ionicons name="person-outline" size={20} color={mutedIcon} />
-          <Text className="text-ink-900 dark:text-white text-base font-medium flex-1 ml-3">
-            Voir le profil
-          </Text>
-          <Ionicons name="chevron-forward" size={18} color="#9ca3af" />
-        </TouchableOpacity>
+        {!isGroup && other && (
+          <TouchableOpacity
+            onPress={() => nav.navigate('UserProfile', { userId: other.id })}
+            activeOpacity={0.7}
+            className="mx-4 mt-4 bg-surface-card dark:bg-dark-100 rounded-2xl px-4 py-4 flex-row items-center"
+          >
+            <Ionicons name="person-outline" size={20} color={mutedIcon} />
+            <Text className="text-ink-900 dark:text-white text-base font-medium flex-1 ml-3">
+              Voir le profil
+            </Text>
+            <Ionicons name="chevron-forward" size={18} color="#9ca3af" />
+          </TouchableOpacity>
+        )}
       </ScrollView>
     </View>
   );

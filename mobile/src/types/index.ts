@@ -74,12 +74,27 @@ export interface Message {
   createdAt: string;
 }
 
+export interface CallParticipant {
+  id: string;
+  userId: string;
+  user: User;
+  /** joined = a participe, declined = a refuse, missed = n'a pas repondu */
+  status: 'joined' | 'declined' | 'missed';
+  isInitiator: boolean;
+  duration: number;
+}
+
 export interface Call {
   id: string;
   caller: User;
   callerId: string;
-  callee: User;
-  calleeId: string;
+  /** Nul pour un appel de groupe. */
+  callee: User | null;
+  calleeId: string | null;
+  mode?: 'direct' | 'group';
+  /** Salon a l'origine d'un appel de groupe. */
+  chatRoomId?: string | null;
+  participants?: CallParticipant[];
   type: 'audio' | 'video';
   status: 'completed' | 'missed' | 'rejected';
   duration: number;

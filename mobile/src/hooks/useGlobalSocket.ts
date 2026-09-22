@@ -135,7 +135,7 @@ export function useGlobalSocket() {
         useChatStore.getState().removeRoom(roomId);
       });
 
-      // ---- WebRTC call signaling ----
+      // ---- Appels ----
       // Un appel a pu sonner pendant que l'application dormait en
       // arriere-plan, socket coupe : a chaque (re)connexion on redemande au
       // serveur s'il reste un appel en attente.
@@ -145,40 +145,28 @@ export function useGlobalSocket() {
       socket.on('incoming-call', (data: any) => {
         callManager.receiveIncomingCall(data);
       });
-      socket.on('call-accepted', (data: any) => {
-        callManager.onCallAccepted(data);
+      socket.on('call-participant-joined', (data: any) => {
+        callManager.onParticipants(data);
       });
-      socket.on('call-rejected', (data: any) => {
-        callManager.onCallEnded({
-          callId: data?.callId,
-          reason: data?.busy ? 'busy' : 'rejected',
-        });
-      });
-      socket.on('call-cancelled', (data: any) => {
-        // L'appelant a raccroche avant qu'on decroche : rien a expliquer,
-        // la sonnerie s'arrete simplement.
-        callManager.onCallEnded({ callId: data?.callId });
+      socket.on('call-participants-updated', (data: any) => {
+        callManager.onParticipants(data);
       });
       socket.on('call-ended', (data: any) => {
-        callManager.onCallEnded({ callId: data?.callId });
+        callManager.onCallEnded(data);
       });
-      socket.on('call-timeout', (data: any) => {
-        callManager.onCallEnded({ callId: data?.callId, reason: 'timeout' });
+      // L'appelant a raccroche avant qu'on decroche, ou on a decroche sur un
+      // autre appareil : la sonnerie s'arrete, rien a expliquer.
+      socket.on('call-cancelled', (data: any) => {
+        callManager.onRingStopped(data);
       });
-      socket.on('call-unavailable', (data: any) => {
-        callManager.onCallEnded({
-          callId: data?.callId,
-          reason: 'unavailable',
-        });
+      socket.on('call-answered-elsewhere', (data: any) => {
+        callManager.onRingStopped(data);
       });
-      socket.on('webrtc-offer', (data: any) => {
-        callManager.onWebrtcOffer(data);
+      socket.on('room-call-started', (data: any) => {
+        callManager.onRoomCallStarted(data);
       });
-      socket.on('webrtc-answer', (data: any) => {
-        callManager.onWebrtcAnswer(data);
-      });
-      socket.on('webrtc-ice', (data: any) => {
-        callManager.onWebrtcIce(data);
+      socket.on('room-call-ended', (data: any) => {
+        callManager.onRoomCallEnded(data);
       });
 
       // Le socket a pu se connecter avant que l'ecouteur ci-dessus existe.

@@ -14,8 +14,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from 'nativewind';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/useAuthStore';
-import { callManager, isCallSupported } from '../../services/callManager';
-import { Call, RootStackParamList, User } from '../../types';
+import { useChatStore } from '../../store/useChatStore';
+import {
+  callManager,
+  isCallSupported,
+  CallTarget,
+} from '../../services/callManager';
+import { summarizeCall } from '../../utils/callHistory';
+import { Call, ChatRoom, RootStackParamList, User } from '../../types';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 
@@ -44,6 +50,7 @@ const formatDuration = (seconds: number) => {
 const CallRow = React.memo(function CallRow({
   item,
   currentUser,
+  rooms,
   selectionMode,
   selected,
   mutedIcon,
@@ -54,17 +61,19 @@ const CallRow = React.memo(function CallRow({
 }: {
   item: Call;
   currentUser?: User | null;
+  rooms: ChatRoom[];
   selectionMode: boolean;
   selected: boolean;
   mutedIcon: string;
   headerAccent: string;
   onPress: (call: Call) => void;
   onLongPress: (call: Call) => void;
-  onStartCall: (other: Call['caller'], type: 'audio' | 'video') => void;
+  onStartCall: (target: CallTarget, type: 'audio' | 'video') => void;
 }) {
-  const isOutgoing = item.callerId === currentUser?.id;
-  const other = isOutgoing ? item.callee : item.caller;
-  const missed = item.status === 'missed' && !isOutgoing;
+  const summary = summarizeCall(item, currentUser?.id, rooms);
+  const { isOutgoing, target } = summary;
+  const other = summary.avatarUser;
+  const missed = summary.missedByMe;
 
   return (
     <TouchableOpacity
@@ -90,7 +99,9 @@ const CallRow = React.memo(function CallRow({
       )}
 
       <View className="w-12 h-12 rounded-2xl bg-primary-100 dark:bg-primary-900 items-center justify-center overflow-hidden mr-3">
-        {other?.avatar ? (
+        {summary.isGroup ? (
+          <Ionicons name="people" size={22} color={headerAccent} />
+        ) : other?.avatar ? (
           <Image
             source={{ uri: other.avatar }}
             className="w-12 h-12"
@@ -111,7 +122,7 @@ const CallRow = React.memo(function CallRow({
           }`}
           numberOfLines={1}
         >
-          {other?.name || 'Inconnu'}
+          {summary.title}
         </Text>
         <View className="flex-row items-center mt-0.5">
           <Ionicons
@@ -138,17 +149,17 @@ const CallRow = React.memo(function CallRow({
         </View>
       </View>
 
-      {!selectionMode && (
+      {!selectionMode && target && (
         <>
           <TouchableOpacity
-            onPress={() => onStartCall(other, 'audio')}
+            onPress={() => onStartCall(target, 'audio')}
             activeOpacity={0.7}
             className="p-2 mr-1"
           >
             <Ionicons name="call-outline" size={22} color={headerAccent} />
           </TouchableOpacity>
           <TouchableOpacity
-            onPress={() => onStartCall(other, 'video')}
+            onPress={() => onStartCall(target, 'video')}
             activeOpacity={0.7}
             className="p-2"
           >
@@ -166,6 +177,7 @@ const CallRow = React.memo(function CallRow({
 
 export default function CallsScreen() {
   const currentUser = useAuthStore((s) => s.user);
+  const rooms = useChatStore((s) => s.rooms);
   const nav = useNavigation<Nav>();
   const insets = useSafeAreaInsets();
   const [calls, setCalls] = useState<Call[]>([]);
@@ -204,7 +216,7 @@ export default function CallsScreen() {
   }, []);
 
   const startCall = useCallback(
-    async (other: Call['caller'], type: 'audio' | 'video') => {
+    async (target: CallTarget, type: 'audio' | 'video') => {
       if (!isCallSupported()) {
         Alert.alert(
           'Appels indisponibles',
@@ -213,10 +225,7 @@ export default function CallsScreen() {
         return;
       }
       try {
-        await callManager.startCall(
-          { id: other.id, name: other.name, avatar: other.avatar },
-          type,
-        );
+        await callManager.startCall(target, type);
       } catch (e: any) {
         Alert.alert(
           "Impossible d'appeler",
@@ -284,6 +293,7 @@ export default function CallsScreen() {
       <CallRow
         item={item}
         currentUser={currentUser}
+        rooms={rooms}
         selectionMode={selectionMode}
         selected={selectedIds.has(item.id)}
         mutedIcon={mutedIcon}
@@ -295,6 +305,7 @@ export default function CallsScreen() {
     ),
     [
       currentUser,
+      rooms,
       selectionMode,
       selectedIds,
       mutedIcon,

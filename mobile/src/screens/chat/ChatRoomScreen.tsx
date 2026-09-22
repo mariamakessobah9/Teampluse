@@ -31,6 +31,7 @@ import {
 import type { AudioPlayer } from 'expo-audio';
 import { useChatStore } from '../../store/useChatStore';
 import { useAuthStore } from '../../store/useAuthStore';
+import { useCallStore } from '../../store/useCallStore';
 import { useSocket } from '../../hooks/useSocket';
 import { uploadToCloudinary } from '../../services/upload';
 import { callManager, isCallSupported } from '../../services/callManager';
@@ -338,6 +339,17 @@ export default function ChatRoomScreen() {
   const mutedIcon = isDark ? '#94a3b8' : '#4b5563';
 
   const isGroup = room?.type === 'group';
+  // Appel de groupe en cours dans ce salon : on propose de le rejoindre
+  // plutot que d'en lancer un second.
+  const roomCall = useCallStore((s) => s.roomCalls[roomId]);
+  const callStatus = useCallStore((s) => s.status);
+  const inThisCall = useCallStore(
+    (s) => !!roomCall && s.callId === roomCall.callId,
+  );
+
+  useEffect(() => {
+    if (isGroup) void callManager.refreshRoomCall(roomId);
+  }, [isGroup, roomId]);
 
   const otherMember = useMemo(() => {
     if (!room || room.type !== 'direct') return null;
@@ -677,7 +689,7 @@ export default function ChatRoomScreen() {
   }, [currentUser?.id, roomId, deleteMessageForEveryone, deleteMessageForMe]);
 
   const handleStartCall = async (type: 'audio' | 'video') => {
-    if (!otherMember) return;
+    if (!isGroup && !otherMember) return;
     if (!isCallSupported()) {
       Alert.alert(
         'Appels indisponibles',
@@ -686,17 +698,41 @@ export default function ChatRoomScreen() {
       return;
     }
     try {
-      await callManager.startCall(
-        {
-          id: otherMember.id,
-          name: otherMember.name,
-          avatar: otherMember.avatar,
-        },
-        type,
-      );
+      if (isGroup) {
+        // Tout le salon est appele ; le serveur nous fait rejoindre l'appel
+        // deja en cours s'il y en a un.
+        await callManager.startCall(
+          { roomId, title: room?.name || 'Groupe' },
+          type,
+        );
+      } else {
+        await callManager.startCall(
+          {
+            peers: [
+              {
+                id: otherMember!.id,
+                name: otherMember!.name,
+                avatar: otherMember!.avatar,
+              },
+            ],
+          },
+          type,
+        );
+      }
     } catch (e: any) {
       Alert.alert(
         "Impossible d'appeler",
+        e?.message || 'Veuillez réessayer.',
+      );
+    }
+  };
+
+  const handleJoinCall = async () => {
+    try {
+      await callManager.joinRoomCall(roomId, room?.name || 'Groupe');
+    } catch (e: any) {
+      Alert.alert(
+        "Impossible de rejoindre l'appel",
         e?.message || 'Veuillez réessayer.',
       );
     }
@@ -837,27 +873,47 @@ export default function ChatRoomScreen() {
           </View>
         </TouchableOpacity>
 
-        {!isGroup && (
-          <>
-            <TouchableOpacity
-              className="ml-3"
-              onPress={() => handleStartCall('audio')}
-            >
-              <Ionicons name="call-outline" size={22} color={headerAccent} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              className="ml-4"
-              onPress={() => handleStartCall('video')}
-            >
-              <Ionicons
-                name="videocam-outline"
-                size={22}
-                color={headerAccent}
-              />
-            </TouchableOpacity>
-          </>
-        )}
+        <TouchableOpacity
+          className="ml-3"
+          onPress={() => handleStartCall('audio')}
+          accessibilityLabel={isGroup ? 'Appel de groupe' : 'Appeler'}
+        >
+          <Ionicons name="call-outline" size={22} color={headerAccent} />
+        </TouchableOpacity>
+        <TouchableOpacity
+          className="ml-4"
+          onPress={() => handleStartCall('video')}
+          accessibilityLabel={isGroup ? 'Appel vidéo de groupe' : 'Appel vidéo'}
+        >
+          <Ionicons
+            name="videocam-outline"
+            size={22}
+            color={headerAccent}
+          />
+        </TouchableOpacity>
       </View>
+
+      {isGroup && roomCall && !inThisCall && callStatus === 'idle' && (
+        <TouchableOpacity
+          onPress={handleJoinCall}
+          activeOpacity={0.85}
+          className="flex-row items-center bg-primary-600 px-4 py-2.5"
+        >
+          <Ionicons
+            name={roomCall.callType === 'video' ? 'videocam' : 'call'}
+            size={18}
+            color="#ffffff"
+          />
+          <Text className="flex-1 text-white font-semibold ml-2">
+            {roomCall.callType === 'video'
+              ? 'Appel vidéo en cours'
+              : 'Appel en cours'}
+          </Text>
+          <View className="bg-white rounded-full px-3 py-1">
+            <Text className="text-primary-700 font-bold text-sm">Rejoindre</Text>
+          </View>
+        </TouchableOpacity>
+      )}
 
       {/* Date pill */}
       <View className="items-center my-3">
