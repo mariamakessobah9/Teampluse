@@ -268,7 +268,8 @@ export class MailService implements OnModuleInit {
         <h1 style="color:#22c55e;margin:0 0 8px">TeamPulse</h1>
         <h2 style="margin:0 0 24px;color:#fff">Invitation à rejoindre ${organizationName}</h2>
         <p style="margin:0 0 16px">Installez TeamPulse, choisissez « Rejoindre une organisation » et saisissez ce code d'invitation :</p>
-        <div style="font-size:18px;letter-spacing:2px;font-weight:bold;color:#22c55e;text-align:center;padding:20px;background:#1e293b;border-radius:12px;margin:16px 0;word-break:break-all">${token}</div>
+        <div style="font-size:28px;letter-spacing:4px;font-family:'Courier New',monospace;font-weight:bold;color:#22c55e;text-align:center;padding:20px;background:#1e293b;border-radius:12px;margin:16px 0;white-space:nowrap">${token}</div>
+        <p style="margin:0 0 16px;color:#94a3b8;font-size:13px">Majuscules ou minuscules, peu importe.</p>
         <p style="margin:16px 0 0;color:#94a3b8;font-size:13px">Ce code expire dans 7 jours. Si vous n'attendiez pas cette invitation, ignorez ce message.</p>
       </div>
     `;

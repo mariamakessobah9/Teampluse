@@ -146,6 +146,20 @@ describe('Organisations : cloisonnement et roles', () => {
         })
         .expect(400);
     });
+
+    it('accepte le code colle avec espaces, tirets ou en minuscules', async () => {
+      const owner = await signUp('a@acme.test', { organizationName: 'Acme' });
+      const token = await invite(owner, 'b@acme.test');
+      expect(token).toMatch(/^[2-9A-HJKMNP-Z]{10}$/);
+
+      const messy = ` ${token.slice(0, 5).toLowerCase()}-\n${token.slice(5)} `;
+      const preview = await http()
+        .get(`/api/invitations/${encodeURIComponent(messy)}`)
+        .expect(200);
+      expect(preview.body.organizationName).toBe('Acme');
+
+      await signUp('b@acme.test', { invitationToken: messy });
+    });
   });
 
   // --- Cloisonnement -------------------------------------------------------

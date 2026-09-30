@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Text, TouchableOpacity, View, Alert, ActivityIndicator } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -11,6 +11,12 @@ import AuthButton from '../../components/auth/AuthButton';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 type Mode = 'create' | 'join';
+
+/**
+ * Le copier-coller depuis un e-mail ramène volontiers espaces, retours à la
+ * ligne ou caractères invisibles au milieu du code : on les retire.
+ */
+const cleanCode = (raw: string) => raw.replace(/[\s\u200B-\u200D\uFEFF]/g, '');
 
 export default function RegisterScreen() {
   const [mode, setMode] = useState<Mode>('create');
@@ -25,26 +31,40 @@ export default function RegisterScreen() {
   // entreprise avant de saisir un mot de passe.
   const [preview, setPreview] = useState<InvitationPreview | null>(null);
   const [checking, setChecking] = useState(false);
+  // Le bouton « Vérifier » fait perdre le focus au champ : sans ce garde, le
+  // même code partirait deux fois au serveur.
+  const inFlight = useRef<string | null>(null);
 
   const register = useAuthStore((s) => s.register);
   const nav = useNavigation<Nav>();
 
   const checkCode = async () => {
-    const token = code.trim();
-    if (!token) return;
+    const token = cleanCode(code);
+    if (!token || inFlight.current === token || preview) return;
+    inFlight.current = token;
     setChecking(true);
-    setPreview(null);
     try {
       const found = await previewInvitation(token);
       setPreview(found);
       // L'invitation est nominative : pré-remplir évite le refus du serveur.
       setEmail(found.email);
-    } catch {
-      Alert.alert(
-        'Code invalide',
-        'Cette invitation est inconnue, déjà utilisée ou expirée.',
-      );
+    } catch (err: any) {
+      const status = err?.response?.status;
+      if (!err?.response) {
+        Alert.alert('Erreur réseau', 'Serveur injoignable, réessayez.');
+      } else if (status === 429) {
+        Alert.alert(
+          'Trop de tentatives',
+          'Patientez une minute avant de vérifier à nouveau le code.',
+        );
+      } else {
+        Alert.alert(
+          'Code invalide',
+          "Ce code est inconnu, déjà utilisé ou expiré. Vérifiez qu'il s'agit du dernier e-mail d'invitation reçu : un nouvel envoi remplace le code précédent.",
+        );
+      }
     } finally {
+      inFlight.current = null;
       setChecking(false);
     }
   };
@@ -65,7 +85,7 @@ export default function RegisterScreen() {
       );
       return;
     }
-    if (mode === 'join' && !code.trim()) {
+    if (mode === 'join' && !cleanCode(code)) {
       Alert.alert('Code manquant', 'Saisissez le code reçu par e-mail.');
       return;
     }
@@ -75,7 +95,7 @@ export default function RegisterScreen() {
     try {
       await register(name, cleanEmail, password, {
         organizationName: mode === 'create' ? orgName.trim() : undefined,
-        invitationToken: mode === 'join' ? code.trim() : undefined,
+        invitationToken: mode === 'join' ? cleanCode(code) : undefined,
       });
       nav.navigate('OTP', { email: cleanEmail });
     } catch (err: any) {
@@ -138,17 +158,17 @@ export default function RegisterScreen() {
                 placeholder="Code d'invitation"
                 value={code}
                 onChangeText={(v) => {
-                  setCode(v);
+                  setCode(cleanCode(v));
                   setPreview(null);
                 }}
-                autoCapitalize="none"
+                autoCapitalize="characters"
                 autoCorrect={false}
                 onBlur={checkCode}
               />
             </View>
             <TouchableOpacity
               onPress={checkCode}
-              disabled={checking || !code.trim()}
+              disabled={checking || !cleanCode(code)}
               activeOpacity={0.8}
               className="bg-surface-chip dark:bg-dark-100 rounded-xl px-4 h-[54px] items-center justify-center ml-2"
             >

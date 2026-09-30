@@ -357,7 +357,7 @@ export default function OrganizationScreen() {
                         {inv.email}
                       </Text>
                       <Text className="text-ink-400 dark:text-slate-400 text-xs mt-0.5">
-                        {ROLE_LABEL[inv.role]} · code {inv.token.slice(0, 8)}…
+                        {ROLE_LABEL[inv.role]} · code {inv.token}
                       </Text>
                     </View>
                     <Ionicons name="close-circle" size={20} color="#dc2626" />

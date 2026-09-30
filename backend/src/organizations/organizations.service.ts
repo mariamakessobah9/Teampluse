@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Not, Repository } from 'typeorm';
-import { randomBytes } from 'crypto';
+import { randomInt } from 'crypto';
 import { Organization } from './organization.entity';
 import { Invitation } from './invitation.entity';
 import { OrgRole, isOrgRole, roleAtLeast } from './org-role.enum';
@@ -18,6 +18,30 @@ import { ChatRoom } from '../chat/entities/chat-room.entity';
 
 /** Une invitation non utilisee expire au bout de sept jours. */
 const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Alphabet des codes d'invitation : majuscules et chiffres, sans les
+ * caracteres qui se confondent a la lecture (0/O, 1/I/L). Le code est recopie
+ * ou colle depuis un e-mail : sans tiret ni minuscule, un appui long le
+ * selectionne en entier et la casse ne compte plus.
+ */
+const INVITATION_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
+/** 31^10 ≈ 8e14 combinaisons, l'apercu etant en outre limite en debit. */
+const INVITATION_CODE_LENGTH = 10;
+
+const generateInvitationCode = (): string =>
+  Array.from(
+    { length: INVITATION_CODE_LENGTH },
+    () => INVITATION_ALPHABET[randomInt(INVITATION_ALPHABET.length)],
+  ).join('');
+
+/**
+ * Forme canonique d'un code saisi : on retire espaces, retours a la ligne,
+ * tirets et caracteres invisibles que le copier-coller depuis un e-mail
+ * ajoute volontiers, et on ignore la casse.
+ */
+export const normalizeInvitationCode = (raw: string): string =>
+  raw.toUpperCase().replace(/[^A-Z0-9]/g, '');
 
 export const emailDomain = (email: string): string =>
   email.trim().toLowerCase().split('@')[1] ?? '';
@@ -356,7 +380,7 @@ export class OrganizationsService implements OnModuleInit {
       organizationId: orgId,
       invitedById,
       role,
-      token: randomBytes(24).toString('base64url'),
+      token: await this.uniqueInvitationCode(),
       expiresAt: new Date(Date.now() + INVITATION_TTL_MS),
     });
     return this.invitationsRepo.save(invitation);
@@ -381,14 +405,34 @@ export class OrganizationsService implements OnModuleInit {
   /** Invitation exploitable, ou null si inconnue, deja utilisee ou expiree. */
   async usableInvitation(token: string): Promise<Invitation | null> {
     if (!token) return null;
-    const invitation = await this.invitationsRepo.findOne({
-      where: { token },
-      relations: ['organization'],
-    });
+    // Les invitations emises avant les codes courts portent un jeton base64url
+    // sensible a la casse : on le cherche d'abord tel quel (debarrasse des
+    // blancs), puis sous forme normalisee.
+    const raw = token.replace(/[\s\u200B-\u200D\uFEFF]/g, '');
+    const code = normalizeInvitationCode(token);
+    const candidates = [...new Set([raw, code])].filter(Boolean);
+    let invitation: Invitation | null = null;
+    for (const candidate of candidates) {
+      invitation = await this.invitationsRepo.findOne({
+        where: { token: candidate },
+        relations: ['organization'],
+      });
+      if (invitation) break;
+    }
     if (!invitation) return null;
     if (invitation.acceptedAt) return null;
     if (invitation.expiresAt < new Date()) return null;
     return invitation;
+  }
+
+  private async uniqueInvitationCode(): Promise<string> {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const code = generateInvitationCode();
+      if (!(await this.invitationsRepo.exists({ where: { token: code } }))) {
+        return code;
+      }
+    }
+    throw new ConflictException("Impossible de generer un code d'invitation");
   }
 
   async markAccepted(id: string): Promise<void> {
