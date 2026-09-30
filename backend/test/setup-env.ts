@@ -5,6 +5,11 @@
  * les tests creent et suppriment des comptes, ils ne doivent jamais toucher
  * la base de developpement.
  */
+// Charge `.env` d'abord, comme `prepare-db.js` : sans cela les identifiants
+// de la base retombent sur les valeurs par defaut ci-dessous et la connexion
+// est refusee des que le mot de passe local differe de `postgres`.
+import 'dotenv/config';
+
 process.env.DB_NAME = process.env.TEST_DB_NAME ?? 'teampulse_e2e';
 delete process.env.DATABASE_URL;
 
