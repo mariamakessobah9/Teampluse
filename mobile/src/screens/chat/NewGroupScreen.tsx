@@ -207,10 +207,19 @@ export default function NewGroupScreen() {
                 activeOpacity={0.7}
                 className="flex-row items-center bg-primary-100 dark:bg-primary-900 rounded-full pl-1 pr-3 py-1 mr-2"
               >
-                <View className="w-6 h-6 rounded-full bg-primary-500 items-center justify-center mr-2">
-                  <Text className="text-white text-xs font-bold">
-                    {u.name.charAt(0).toUpperCase()}
-                  </Text>
+                <View className="w-6 h-6 rounded-full bg-primary-500 items-center justify-center mr-2 overflow-hidden">
+                  {u.avatar ? (
+                    <Image
+                      source={{ uri: u.avatar }}
+                      className="w-6 h-6"
+                      contentFit="cover"
+                      cachePolicy="memory-disk"
+                    />
+                  ) : (
+                    <Text className="text-white text-xs font-bold">
+                      {u.name.charAt(0).toUpperCase()}
+                    </Text>
+                  )}
                 </View>
                 <Text className="text-primary-700 dark:text-primary-200 text-sm font-semibold mr-1">
                   {u.name}

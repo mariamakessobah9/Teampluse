@@ -1,5 +1,6 @@
 import React from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, Text, View } from 'react-native';
+import { KeyboardAvoidingView, ScrollView, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Logo from '../Logo';
 
 /**
@@ -17,15 +18,23 @@ export default function AuthLayout({
   subtitle?: string;
   children: React.ReactNode;
 }) {
+  const insets = useSafeAreaInsets();
   return (
     <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      // « padding » partout : en edge-to-edge Android ne redimensionne plus
+      // la fenêtre, et « height » laissait le clavier sur les champs.
+      behavior="padding"
       className="flex-1 bg-surface-page dark:bg-dark-200"
     >
       {/* Le clavier recouvre les champs du bas sur les petits ecrans une fois
           le formulaire centre : le defilement garde le bouton atteignable. */}
       <ScrollView
-        contentContainerStyle={{ flexGrow: 1, justifyContent: 'center' }}
+        contentContainerStyle={{
+          flexGrow: 1,
+          justifyContent: 'center',
+          paddingTop: insets.top,
+          paddingBottom: insets.bottom + 16,
+        }}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >

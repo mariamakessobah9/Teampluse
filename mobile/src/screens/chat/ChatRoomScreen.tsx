@@ -12,6 +12,7 @@ import {
   Alert,
   Linking,
   Pressable,
+  PanResponder,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
@@ -33,8 +34,10 @@ import { useChatStore } from '../../store/useChatStore';
 import { useAuthStore } from '../../store/useAuthStore';
 import { useCallStore } from '../../store/useCallStore';
 import { useSocket } from '../../hooks/useSocket';
+import { useKeyboardVisible } from '../../hooks/useKeyboardVisible';
 import { uploadToCloudinary } from '../../services/upload';
 import { callManager, isCallSupported } from '../../services/callManager';
+import MessageTicks from '../../components/MessageTicks';
 import { Message, RootStackParamList } from '../../types';
 
 type ChatRoomRoute = RouteProp<RootStackParamList, 'ChatRoom'>;
@@ -42,6 +45,17 @@ type Nav = NativeStackNavigationProp<RootStackParamList>;
 
 const EMPTY_MESSAGES: Message[] = [];
 const TYPING_DEBOUNCE_MS = 2000;
+/**
+ * Le destinataire efface l'indicateur au bout de 5 s sans nouvelle : on le
+ * renouvelle avant, tant qu'on écrit ou qu'on enregistre.
+ */
+const TYPING_REFRESH_MS = 3000;
+/** Glissement vers la gauche qui annule un vocal en cours, comme WhatsApp. */
+const VOICE_CANCEL_DX = 110;
+/** Glissement vers le haut qui verrouille l'enregistrement (mains libres). */
+const VOICE_LOCK_DY = 80;
+/** En dessous, c'est un simple appui : on explique le geste au lieu d'envoyer. */
+const VOICE_MIN_SECONDS = 1;
 
 const formatTime = (dateStr: string) =>
   new Date(dateStr).toLocaleTimeString([], {
@@ -148,7 +162,7 @@ const MessageRow = React.memo(function MessageRow({
           showAvatar &&
           (item.type !== 'image' || item.deletedForEveryone) && (
             <Text className="text-primary-700 dark:text-primary-300 text-xs font-bold mb-0.5">
-              {item.sender?.name || 'Unknown'}
+              {item.sender?.name || 'Inconnu'}
             </Text>
           )}
 
@@ -164,7 +178,7 @@ const MessageRow = React.memo(function MessageRow({
                 isMe ? 'text-white/70' : 'text-ink-400 dark:text-slate-400'
               }`}
             >
-              This message was deleted
+              {isMe ? 'Vous avez supprimé ce message' : 'Ce message a été supprimé'}
             </Text>
           </View>
         ) : item.type === 'image' && item.fileUrl ? (
@@ -274,13 +288,9 @@ const MessageRow = React.memo(function MessageRow({
             {formatTime(item.createdAt)}
           </Text>
           {isMe && !item.deletedForEveryone && (
-            <Text
-              className={`text-[10px] ml-1 ${
-                item.status === 'read' ? 'text-white' : 'text-white/70'
-              }`}
-            >
-              {item.status === 'sent' ? '✓' : '✓✓'}
-            </Text>
+            <View className="ml-1">
+              <MessageTicks status={item.status} color="#ffffffb3" size={15} />
+            </View>
           )}
         </View>
       </Pressable>
@@ -297,6 +307,7 @@ export default function ChatRoomScreen() {
   const flatListRef = useRef<FlatList>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isTypingRef = useRef(false);
+  const lastTypingEmitRef = useRef(0);
 
   const messages = useChatStore((s) => s.messages[roomId] ?? EMPTY_MESSAGES);
   const fetchMessages = useChatStore((s) => s.fetchMessages);
@@ -311,15 +322,30 @@ export default function ChatRoomScreen() {
   const { joinRoom, leaveRoom, sendMessage, sendTyping, markAsRead } = useSocket();
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
+  const keyboardVisible = useKeyboardVisible();
+  // Place sous la barre de saisie pour la barre de navigation du téléphone.
+  const bottomGap = keyboardVisible ? 0 : insets.bottom;
 
   const [attachOpen, setAttachOpen] = useState(false);
   const [uploadingType, setUploadingType] = useState<null | 'image' | 'file' | 'voice'>(
     null,
   );
   const [fullscreenUrl, setFullscreenUrl] = useState<string | null>(null);
-  const [voiceState, setVoiceState] = useState<'idle' | 'recording' | 'preview'>(
-    'idle',
-  );
+  // holding = doigt posé sur le micro ; recording = enregistrement verrouillé
+  // (glissé vers le haut) ; preview = écoute avant envoi.
+  const [voiceState, setVoiceState] = useState<
+    'idle' | 'holding' | 'recording' | 'preview'
+  >('idle');
+  const voiceStateRef = useRef<typeof voiceState>('idle');
+  const setVoice = useCallback((next: typeof voiceState) => {
+    voiceStateRef.current = next;
+    setVoiceState(next);
+  }, []);
+  const [dragX, setDragX] = useState(0);
+  const [voiceHint, setVoiceHint] = useState(false);
+  const voiceHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const recordingStartRef = useRef<Promise<boolean> | null>(null);
+  const recordStartedAtRef = useRef(0);
   const [recordSeconds, setRecordSeconds] = useState(0);
   const [previewUri, setPreviewUri] = useState<string | null>(null);
   const [previewDuration, setPreviewDuration] = useState(0);
@@ -356,20 +382,27 @@ export default function ChatRoomScreen() {
     return room.members?.find((m) => m.id !== currentUser?.id) || null;
   }, [room, currentUser?.id]);
 
-  const typingNames = useMemo(() => {
-    if (!typingMap || !room) return [] as string[];
-    const ids = Object.keys(typingMap).filter((id) => id !== currentUser?.id);
-    return ids
-      .map((id) => room.members?.find((m) => m.id === id)?.name)
+  // « écrit… » / « enregistre un audio… », comme sur WhatsApp. En direct le
+  // nom est déjà dans l'en-tête ; dans un groupe on précise qui.
+  const typingLabel = useMemo(() => {
+    if (!typingMap || !room) return null;
+    const active = Object.entries(typingMap).filter(
+      ([id]) => id !== currentUser?.id,
+    );
+    if (active.length === 0) return null;
+    const recording = active.some(([, kind]) => kind === 'recording');
+    if (room.type !== 'group') {
+      return recording ? 'enregistre un audio…' : 'écrit…';
+    }
+    const names = active
+      .map(([id]) => room.members?.find((m) => m.id === id)?.name?.split(' ')[0])
       .filter((n): n is string => Boolean(n));
+    if (names.length === 0) return null;
+    if (names.length === 1) {
+      return `${names[0]} ${recording ? 'enregistre un audio…' : 'écrit…'}`;
+    }
+    return `${names.join(', ')} ${recording ? 'enregistrent…' : 'écrivent…'}`;
   }, [typingMap, room, currentUser?.id]);
-
-  const typingLabel =
-    typingNames.length === 0
-      ? null
-      : typingNames.length === 1
-      ? `${typingNames[0]} is typing…`
-      : `${typingNames.join(', ')} are typing…`;
 
   const stopTyping = (currentRoomId: string) => {
     if (typingTimeoutRef.current) {
@@ -401,8 +434,10 @@ export default function ChatRoomScreen() {
       stopTyping(roomId);
       return;
     }
-    if (!isTypingRef.current) {
+    const now = Date.now();
+    if (!isTypingRef.current || now - lastTypingEmitRef.current > TYPING_REFRESH_MS) {
       isTypingRef.current = true;
+      lastTypingEmitRef.current = now;
       sendTyping(roomId, true);
     }
     if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
@@ -498,12 +533,24 @@ export default function ChatRoomScreen() {
     setPreviewPlaying(false);
   };
 
-  const startRecording = async () => {
+  const stopRecordTimers = () => {
+    if (recordTimerRef.current) {
+      clearInterval(recordTimerRef.current);
+      recordTimerRef.current = null;
+    }
+    sendTyping(roomId, false, 'recording');
+  };
+
+  /** Démarre l'enregistrement ; faux si le micro est refusé ou indisponible. */
+  const beginRecording = async (): Promise<boolean> => {
     try {
       const perm = await requestRecordingPermissionsAsync();
       if (!perm.granted) {
-        Alert.alert('Microphone permission required');
-        return;
+        Alert.alert(
+          'Micro requis',
+          "Autorisez l'accès au micro pour envoyer des messages vocaux.",
+        );
+        return false;
       }
       await setAudioModeAsync({
         allowsRecording: true,
@@ -511,58 +558,150 @@ export default function ChatRoomScreen() {
       });
       await recorder.prepareToRecordAsync();
       recorder.record();
-      setVoiceState('recording');
+      recordStartedAtRef.current = Date.now();
       setRecordSeconds(0);
-      recordTimerRef.current = setInterval(
-        () => setRecordSeconds((s) => s + 1),
-        1000,
-      );
+      stopTyping(roomId);
+      sendTyping(roomId, true, 'recording');
+      let ticks = 0;
+      recordTimerRef.current = setInterval(() => {
+        ticks += 1;
+        setRecordSeconds((sec) => sec + 1);
+        if (ticks % (TYPING_REFRESH_MS / 1000) === 0) {
+          sendTyping(roomId, true, 'recording');
+        }
+      }, 1000);
+      return true;
     } catch (e: any) {
-      Alert.alert('Recording failed', e?.message || 'Please try again.');
+      Alert.alert("Enregistrement impossible", e?.message || 'Veuillez réessayer.');
+      return false;
     }
   };
 
-  const stopRecording = async () => {
-    if (recordTimerRef.current) {
-      clearInterval(recordTimerRef.current);
-      recordTimerRef.current = null;
-    }
-    const elapsed = recordSeconds;
+  /** Arrête l'enregistrement et renvoie le fichier, ou null. */
+  const endRecording = async (): Promise<{ uri: string; duration: number } | null> => {
+    stopRecordTimers();
+    const elapsed = (Date.now() - recordStartedAtRef.current) / 1000;
     try {
-      const durationSec = recorder.currentTime || elapsed;
+      const duration = recorder.currentTime || elapsed;
       await recorder.stop();
       const uri = recorder.uri;
-      if (!uri || durationSec < 0.6) {
-        setVoiceState('idle');
-        setRecordSeconds(0);
-        return;
-      }
-      setPreviewUri(uri);
-      setPreviewDuration(durationSec);
-      setVoiceState('preview');
-    } catch (e: any) {
-      Alert.alert('Recording failed', e?.message || 'Please try again.');
-      setVoiceState('idle');
+      return uri ? { uri, duration } : null;
+    } catch {
+      return null;
     } finally {
       setRecordSeconds(0);
     }
   };
 
+  const showVoiceHint = () => {
+    setVoiceHint(true);
+    if (voiceHintTimerRef.current) clearTimeout(voiceHintTimerRef.current);
+    voiceHintTimerRef.current = setTimeout(() => setVoiceHint(false), 2500);
+  };
+
+  // --- Micro maintenu, comme WhatsApp : relâcher envoie, glisser à gauche
+  // annule, glisser vers le haut verrouille.
+
+  const onMicGrant = () => {
+    if (voiceStateRef.current !== 'idle') return;
+    setDragX(0);
+    setVoiceHint(false);
+    setVoice('holding');
+    recordingStartRef.current = beginRecording().then((ok) => {
+      if (!ok && voiceStateRef.current === 'holding') setVoice('idle');
+      return ok;
+    });
+  };
+
+  const cancelHold = async () => {
+    setVoice('idle');
+    setDragX(0);
+    if (await recordingStartRef.current) await endRecording();
+    recordingStartRef.current = null;
+  };
+
+  const onMicMove = (dx: number, dy: number) => {
+    if (voiceStateRef.current !== 'holding') return;
+    if (dx < -VOICE_CANCEL_DX) {
+      void cancelHold();
+      return;
+    }
+    if (dy < -VOICE_LOCK_DY) {
+      // Verrouillé : la barre d'enregistrement prend le relais, avec ses
+      // boutons supprimer / arrêter.
+      setDragX(0);
+      setVoice('recording');
+      return;
+    }
+    setDragX(Math.min(0, dx));
+  };
+
+  const onMicRelease = async () => {
+    if (voiceStateRef.current !== 'holding') return;
+    setVoice('idle');
+    setDragX(0);
+    const started = await recordingStartRef.current;
+    recordingStartRef.current = null;
+    if (!started) return;
+    const result = await endRecording();
+    if (!result || result.duration < VOICE_MIN_SECONDS) {
+      showVoiceHint();
+      return;
+    }
+    await uploadAndSendVoice(result.uri, result.duration);
+  };
+
+  const onMicTerminate = () => {
+    if (voiceStateRef.current === 'holding') void cancelHold();
+  };
+
+  const micHandlers = useRef({
+    grant: onMicGrant,
+    move: onMicMove,
+    release: onMicRelease,
+    terminate: onMicTerminate,
+  });
+  micHandlers.current = {
+    grant: onMicGrant,
+    move: onMicMove,
+    release: onMicRelease,
+    terminate: onMicTerminate,
+  };
+  const micResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderTerminationRequest: () => false,
+      onPanResponderGrant: () => micHandlers.current.grant(),
+      onPanResponderMove: (_, g) => micHandlers.current.move(g.dx, g.dy),
+      onPanResponderRelease: () => {
+        void micHandlers.current.release();
+      },
+      onPanResponderTerminate: () => micHandlers.current.terminate(),
+    }),
+  ).current;
+
+  /** Enregistrement verrouillé : arrêt puis écoute avant envoi. */
+  const stopRecording = async () => {
+    const result = await endRecording();
+    recordingStartRef.current = null;
+    if (!result || result.duration < VOICE_MIN_SECONDS) {
+      setVoice('idle');
+      return;
+    }
+    setPreviewUri(result.uri);
+    setPreviewDuration(result.duration);
+    setVoice('preview');
+  };
+
   const cancelRecording = async () => {
-    if (recordTimerRef.current) {
-      clearInterval(recordTimerRef.current);
-      recordTimerRef.current = null;
-    }
-    if (voiceState === 'recording') {
-      try {
-        await recorder.stop();
-      } catch {}
-    }
+    if (voiceStateRef.current === 'recording') await endRecording();
+    recordingStartRef.current = null;
     cleanupPreviewPlayer();
     setPreviewUri(null);
     setPreviewDuration(0);
     setRecordSeconds(0);
-    setVoiceState('idle');
+    setVoice('idle');
   };
 
   const togglePreviewPlayback = () => {
@@ -602,7 +741,11 @@ export default function ChatRoomScreen() {
     cleanupPreviewPlayer();
     setPreviewUri(null);
     setPreviewDuration(0);
-    setVoiceState('idle');
+    setVoice('idle');
+    await uploadAndSendVoice(uri, duration);
+  };
+
+  const uploadAndSendVoice = async (uri: string, duration: number) => {
     setUploadingType('voice');
     try {
       const uploaded = await uploadToCloudinary({
@@ -619,7 +762,7 @@ export default function ChatRoomScreen() {
         fileSize: uploaded.bytes,
       });
     } catch (e: any) {
-      Alert.alert('Upload failed', e?.message || 'Please try again.');
+      Alert.alert("Échec de l'envoi", e?.message || 'Veuillez réessayer.');
     } finally {
       setUploadingType(null);
     }
@@ -668,24 +811,24 @@ export default function ChatRoomScreen() {
     const buttons: any[] = [];
     if (isMine) {
       buttons.push({
-        text: 'Delete for everyone',
+        text: 'Supprimer pour tout le monde',
         style: 'destructive',
         onPress: () =>
           deleteMessageForEveryone(roomId, msg.id).catch((e: any) =>
-            Alert.alert('Failed', e?.message || 'Please try again.'),
+            Alert.alert('Échec', e?.message || 'Veuillez réessayer.'),
           ),
       });
     }
     buttons.push({
-      text: 'Delete for me',
+      text: 'Supprimer pour moi',
       style: 'destructive',
       onPress: () =>
         deleteMessageForMe(roomId, msg.id).catch((e: any) =>
-          Alert.alert('Failed', e?.message || 'Please try again.'),
+          Alert.alert('Échec', e?.message || 'Veuillez réessayer.'),
         ),
     });
-    buttons.push({ text: 'Cancel', style: 'cancel' });
-    Alert.alert('Delete message', undefined, buttons);
+    buttons.push({ text: 'Annuler', style: 'cancel' });
+    Alert.alert('Supprimer le message ?', undefined, buttons);
   }, [currentUser?.id, roomId, deleteMessageForEveryone, deleteMessageForMe]);
 
   const handleStartCall = async (type: 'audio' | 'video') => {
@@ -749,6 +892,12 @@ export default function ChatRoomScreen() {
         previewPlayerRef.current = null;
       }
       if (recordTimerRef.current) clearInterval(recordTimerRef.current);
+      if (voiceHintTimerRef.current) clearTimeout(voiceHintTimerRef.current);
+      const v = voiceStateRef.current;
+      if (v === 'holding' || v === 'recording') {
+        sendTyping(roomId, false, 'recording');
+        recorder.stop().catch(() => undefined);
+      }
     };
   }, []);
 
@@ -786,12 +935,12 @@ export default function ChatRoomScreen() {
 
   const presenceLabel = otherMember
     ? otherMember.isOnline
-      ? 'Online'
-      : 'Offline'
+      ? 'En ligne'
+      : 'Hors ligne'
     : null;
 
   const groupSubtitle = isGroup && room
-    ? `${room.members.length} member${room.members.length > 1 ? 's' : ''}`
+    ? `${room.members.length} membre${room.members.length > 1 ? 's' : ''}`
     : null;
 
   const openSettings = () => {
@@ -804,7 +953,9 @@ export default function ChatRoomScreen() {
 
   return (
     <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      // En edge-to-edge, Android ne redimensionne plus la fenêtre à
+      // l'ouverture du clavier : sans « padding », il recouvrait la saisie.
+      behavior="padding"
       className="flex-1 bg-surface-page dark:bg-dark-200"
     >
       {/* Header */}
@@ -935,9 +1086,13 @@ export default function ChatRoomScreen() {
         maxToRenderPerBatch={10}
         windowSize={11}
         removeClippedSubviews={true}
+        keyboardShouldPersistTaps="handled"
         onContentSizeChange={() =>
           flatListRef.current?.scrollToEnd({ animated: false })
         }
+        // Clavier ouvert : la liste rétrécit, on garde le dernier message
+        // visible juste au-dessus de la saisie.
+        onLayout={() => flatListRef.current?.scrollToEnd({ animated: false })}
       />
 
       {/* Typing indicator */}
@@ -959,12 +1114,20 @@ export default function ChatRoomScreen() {
         <View className="flex-row items-center justify-center px-4 py-2 bg-primary-50 dark:bg-primary-900/30">
           <ActivityIndicator size="small" color="#16a34a" />
           <Text className="text-primary-700 dark:text-primary-200 text-xs ml-2">
-            Uploading {uploadingType}…
+            {uploadingType === 'voice'
+              ? 'Envoi du vocal…'
+              : uploadingType === 'image'
+                ? "Envoi de l'image…"
+                : 'Envoi du fichier…'}
           </Text>
         </View>
       )}
 
       {/* Voice bar: recording or preview state replaces the input */}
+      <View
+        className="bg-surface-card dark:bg-dark-300"
+        style={{ paddingBottom: bottomGap }}
+      >
       {voiceState === 'recording' ? (
         <View className="flex-row items-center px-4 py-3 bg-surface-card dark:bg-dark-300 border-t border-ink-200/50 dark:border-slate-700/50">
           <TouchableOpacity
@@ -977,7 +1140,7 @@ export default function ChatRoomScreen() {
           <View className="flex-1 flex-row items-center bg-red-50 dark:bg-red-900/30 rounded-2xl px-4 py-2.5">
             <View className="w-2.5 h-2.5 rounded-full bg-red-500 mr-2" />
             <Text className="text-red-600 dark:text-red-300 text-sm font-semibold flex-1">
-              Recording…
+              Enregistrement…
             </Text>
             <Text className="text-red-600 dark:text-red-300 text-sm font-mono">
               {formatDuration(recordSeconds)}
@@ -1014,7 +1177,7 @@ export default function ChatRoomScreen() {
             </TouchableOpacity>
             <View className="flex-1">
               <Text className="text-ink-900 dark:text-white text-sm font-semibold">
-                Voice message
+                Message vocal
               </Text>
               <Text className="text-ink-400 dark:text-slate-400 text-xs">
                 {formatDuration(previewDuration)}
@@ -1031,24 +1194,58 @@ export default function ChatRoomScreen() {
         </View>
       ) : (
         <View className="flex-row items-center px-4 py-3 bg-surface-card dark:bg-dark-300 border-t border-ink-200/50 dark:border-slate-700/50">
-          <TouchableOpacity
-            onPress={() => setAttachOpen(true)}
-            className="w-9 h-9 rounded-full bg-surface-chip dark:bg-dark-100 items-center justify-center mr-2"
-            activeOpacity={0.7}
-          >
-            <Ionicons name="add" size={20} color={mutedIcon} />
-          </TouchableOpacity>
-          <TextInput
-            className="flex-1 bg-surface-chip dark:bg-dark-100 text-ink-900 dark:text-white rounded-2xl px-4 py-2.5 text-base mr-2"
-            placeholder="Message..."
-            placeholderTextColor={isDark ? '#64748b' : '#9ca3af'}
-            value={text}
-            onChangeText={handleChangeText}
-            multiline
-            maxLength={2000}
-          />
-          {text.trim().length > 0 ? (
+          {voiceHint && (
+            <View className="absolute -top-10 right-4 bg-ink-900/90 dark:bg-slate-700 rounded-xl px-3 py-2">
+              <Text className="text-white text-xs">
+                Maintenez pour enregistrer, relâchez pour envoyer
+              </Text>
+            </View>
+          )}
+          {/* Conteneur stable : le micro ne doit pas être démonté pendant
+              qu'on le maintient, sinon le geste est perdu. */}
+          <View className="flex-1 flex-row items-center mr-2" style={{ minHeight: 40 }}>
+            {voiceState === 'holding' ? (
+              <>
+                <View className="w-2.5 h-2.5 rounded-full bg-red-500 mr-2" />
+                <Text className="text-ink-900 dark:text-white text-sm font-mono mr-3">
+                  {formatDuration(recordSeconds)}
+                </Text>
+                <View
+                  className="flex-1 flex-row items-center justify-center"
+                  style={{ transform: [{ translateX: dragX }] }}
+                >
+                  <Ionicons name="chevron-back" size={16} color={mutedIcon} />
+                  <Text className="text-ink-400 dark:text-slate-400 text-sm">
+                    Glisser pour annuler
+                  </Text>
+                </View>
+              </>
+            ) : (
+              <>
+                <TouchableOpacity
+                  onPress={() => setAttachOpen(true)}
+                  className="w-9 h-9 rounded-full bg-surface-chip dark:bg-dark-100 items-center justify-center mr-2"
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="add" size={20} color={mutedIcon} />
+                </TouchableOpacity>
+                <TextInput
+                  className="flex-1 bg-surface-chip dark:bg-dark-100 text-ink-900 dark:text-white rounded-2xl px-4 py-2.5 text-base"
+                  placeholder="Message..."
+                  placeholderTextColor={isDark ? '#64748b' : '#9ca3af'}
+                  value={text}
+                  onChangeText={handleChangeText}
+                  multiline
+                  maxLength={2000}
+                  style={{ maxHeight: 120 }}
+                  textAlignVertical="center"
+                />
+              </>
+            )}
+          </View>
+          {text.trim().length > 0 && voiceState === 'idle' ? (
             <TouchableOpacity
+              key="send"
               className="w-10 h-10 rounded-full bg-primary-600 items-center justify-center"
               activeOpacity={0.85}
               onPress={handleSend}
@@ -1056,16 +1253,33 @@ export default function ChatRoomScreen() {
               <Ionicons name="send" size={18} color="#ffffff" />
             </TouchableOpacity>
           ) : (
-            <TouchableOpacity
-              onPress={startRecording}
-              activeOpacity={0.85}
-              className="w-10 h-10 rounded-full bg-primary-600 items-center justify-center"
-            >
-              <Ionicons name="mic" size={18} color="#ffffff" />
-            </TouchableOpacity>
+            <View key="mic">
+              {voiceState === 'holding' && (
+                <View className="absolute -top-16 left-0 right-0 items-center">
+                  <View className="w-9 h-14 rounded-full bg-surface-chip dark:bg-dark-100 items-center justify-center">
+                    <Ionicons name="lock-closed-outline" size={16} color={mutedIcon} />
+                    <Ionicons name="chevron-up" size={14} color={mutedIcon} />
+                  </View>
+                </View>
+              )}
+              <View
+                {...micResponder.panHandlers}
+                accessibilityRole="button"
+                accessibilityLabel="Maintenir pour enregistrer un message vocal"
+                className={`w-10 h-10 rounded-full items-center justify-center ${
+                  voiceState === 'holding' ? 'bg-red-500' : 'bg-primary-600'
+                }`}
+                style={{
+                  transform: [{ scale: voiceState === 'holding' ? 1.3 : 1 }],
+                }}
+              >
+                <Ionicons name="mic" size={18} color="#ffffff" />
+              </View>
+            </View>
           )}
         </View>
       )}
+      </View>
 
       {/* Attach action sheet */}
       <Modal
@@ -1080,7 +1294,8 @@ export default function ChatRoomScreen() {
         >
           <Pressable
             onPress={(e) => e.stopPropagation()}
-            className="bg-surface-card dark:bg-dark-300 rounded-t-3xl px-6 pt-5 pb-10"
+            className="bg-surface-card dark:bg-dark-300 rounded-t-3xl px-6 pt-5"
+            style={{ paddingBottom: insets.bottom + 24 }}
           >
             <View className="items-center mb-4">
               <View className="w-10 h-1 rounded-full bg-ink-200 dark:bg-slate-600" />

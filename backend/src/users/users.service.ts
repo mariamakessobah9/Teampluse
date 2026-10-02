@@ -9,6 +9,7 @@ import { randomBytes } from 'crypto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ILike, In, IsNull, Not, Repository } from 'typeorm';
 import { User } from './user.entity';
+import { detachUserFromRooms } from './detach-from-rooms';
 
 @Injectable()
 export class UsersService {
@@ -53,6 +54,15 @@ export class UsersService {
       where: { id: In(unique), organizationId, isActive: true },
     });
     return count === unique.length;
+  }
+
+  /** Comptes actifs d'une organisation, pour une diffusion temps reel. */
+  async idsInOrganization(organizationId: string): Promise<string[]> {
+    const users = await this.usersRepo.find({
+      where: { organizationId, isActive: true },
+      select: ['id'],
+    });
+    return users.map((u) => u.id);
   }
 
   async findByEmail(email: string): Promise<User | null> {
@@ -146,9 +156,9 @@ export class UsersService {
    * inutilisable et disparait de l'annuaire. Ce qui subsiste, ce sont les
    * messages deja envoyes a des tiers, desormais dissocies de leur auteur.
    */
-  async deleteAccount(id: string, password: string): Promise<void> {
+  async deleteAccount(id: string, password: string): Promise<string[]> {
     const user = await this.findById(id);
-    if (user.deletedAt) return;
+    if (user.deletedAt) return [];
 
     // Re-authentification : un telephone deverrouille ne doit pas suffire a
     // effacer un compte.
@@ -188,9 +198,31 @@ export class UsersService {
       isActive: false,
       isOnline: false,
       isVerified: false,
+      clearedRooms: null,
       deletedAt: new Date(),
       deactivatedAt: new Date(),
     });
+
+    // Le compte quitte ses conversations : il n'apparait plus nulle part chez
+    // les collegues, ni dans les groupes ni dans la liste des discussions.
+    return detachUserFromRooms(this.usersRepo, id);
+  }
+
+  /** Conversations effacees depuis l'accueil, avec la date de l'effacement. */
+  async getClearedRooms(userId: string): Promise<Record<string, string>> {
+    const user = await this.usersRepo.findOne({
+      where: { id: userId },
+      select: ['id', 'clearedRooms'],
+    });
+    return user?.clearedRooms ?? {};
+  }
+
+  async clearRoom(userId: string, roomId: string): Promise<void> {
+    const cleared = await this.getClearedRooms(userId);
+    cleared[roomId] = new Date().toISOString();
+    await this.usersRepo.update(userId, { clearedRooms: cleared });
+    // Une conversation effacee n'a plus de raison de rester epinglee.
+    await this.unpinRoom(userId, roomId);
   }
 
   /**

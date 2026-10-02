@@ -3,6 +3,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from 'nativewind';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ChatsScreen from '../screens/chat/ChatsScreen';
 import ChatRoomScreen from '../screens/chat/ChatRoomScreen';
 import NewChatScreen from '../screens/chat/NewChatScreen';
@@ -33,6 +34,9 @@ const TAB_ICONS: Record<keyof MainTabParamList, [TabIconName, TabIconName]> = {
 function TabNavigator() {
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
+  // Edge-to-edge : sans cette marge, les boutons de navigation du téléphone
+  // recouvrent les onglets.
+  const { bottom } = useSafeAreaInsets();
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -41,9 +45,9 @@ function TabNavigator() {
           backgroundColor: isDark ? '#020617' : '#ffffff',
           borderTopColor: isDark ? '#1e293b' : '#e5e7eb',
           borderTopWidth: 1,
-          paddingBottom: 8,
+          paddingBottom: 8 + bottom,
           paddingTop: 8,
-          height: 64,
+          height: 64 + bottom,
         },
         tabBarActiveTintColor: '#16a34a',
         tabBarInactiveTintColor: isDark ? '#64748b' : '#9ca3af',

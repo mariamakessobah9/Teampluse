@@ -5,10 +5,19 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { MoreThan, Repository } from 'typeorm';
 import { ChatRoom } from './entities/chat-room.entity';
 import { Message } from './entities/message.entity';
 import { UsersService } from '../users/users.service';
+
+/** Message anterieur a l'effacement de sa conversation par cette personne. */
+const isBeforeClear = (
+  message: Message,
+  cleared: Record<string, string>,
+): boolean => {
+  const at = cleared[message.chatRoomId];
+  return !!at && new Date(message.createdAt) <= new Date(at);
+};
 
 @Injectable()
 export class ChatService {
@@ -103,8 +112,10 @@ export class ChatService {
       .take(limit * 2)
       .getMany();
 
+    const cleared = await this.usersService.getClearedRooms(userId);
     return messages
       .filter((m) => !(m.deletedFor || []).includes(userId))
+      .filter((m) => !isBeforeClear(m, cleared))
       .slice(0, limit);
   }
 
@@ -182,9 +193,20 @@ export class ChatService {
     const pinnedIds = new Set(
       await this.usersService.getPinnedRoomIds(userId),
     );
+    const cleared = await this.usersService.getClearedRooms(userId);
 
-    if (rooms.length === 0) return [];
-    const roomIds = rooms.map((r) => r.id);
+    // Les comptes supprimes ou retires ont quitte leurs salons ; ce filtre
+    // couvre en plus une donnee anterieure au nettoyage. Une conversation
+    // directe dont l'interlocuteur n'existe plus n'a plus rien a afficher.
+    for (const room of rooms) {
+      room.members = room.members.filter((m) => !m.deletedAt && !m.removedAt);
+    }
+    const visible = rooms.filter(
+      (r) => r.type !== 'direct' || r.members.length === 2,
+    );
+
+    if (visible.length === 0) return [];
+    const roomIds = visible.map((r) => r.id);
 
     // Last message per room in a single query (Postgres DISTINCT ON),
     // instead of one findOne per room.
@@ -202,7 +224,7 @@ export class ChatService {
 
     // Unread counts for all rooms in a single grouped query,
     // instead of one count() per room.
-    const unreadRows = await this.messagesRepo
+    const unreadQuery = this.messagesRepo
       .createQueryBuilder('m')
       .select('m.chatRoomId', 'roomId')
       .addSelect('COUNT(*)', 'count')
@@ -210,19 +232,39 @@ export class ChatService {
       .andWhere('m.senderId != :userId', { userId })
       .andWhere('m.status IN (:...statuses)', {
         statuses: ['sent', 'delivered'],
-      })
+      });
+    // Un message anterieur a l'effacement de la conversation ne compte plus
+    // comme non lu.
+    Object.entries(cleared)
+      .filter(([roomId]) => roomIds.includes(roomId))
+      .forEach(([roomId, at], i) => {
+        unreadQuery.andWhere(
+          `(m.chatRoomId != :clearedRoom${i} OR m.createdAt > :clearedAt${i})`,
+          { [`clearedRoom${i}`]: roomId, [`clearedAt${i}`]: new Date(at) },
+        );
+      });
+    const unreadRows = await unreadQuery
       .groupBy('m.chatRoomId')
       .getRawMany<{ roomId: string; count: string }>();
     const unreadByRoom = new Map(
       unreadRows.map((r) => [r.roomId, Number(r.count)]),
     );
 
-    return rooms.map((room) => ({
-      ...room,
-      lastMessage: lastMessageByRoom.get(room.id) ?? null,
-      unreadCount: unreadByRoom.get(room.id) ?? 0,
-      isPinned: pinnedIds.has(room.id),
-    }));
+    return (
+      visible
+        .map((room) => {
+          const last = lastMessageByRoom.get(room.id) ?? null;
+          return {
+            ...room,
+            lastMessage: last && !isBeforeClear(last, cleared) ? last : null,
+            unreadCount: unreadByRoom.get(room.id) ?? 0,
+            isPinned: pinnedIds.has(room.id),
+          };
+        })
+        // Conversation effacee depuis l'accueil : elle reste cachee jusqu'au
+        // prochain message.
+        .filter((room) => !cleared[room.id] || room.lastMessage)
+    );
   }
 
   async sendMessage(
@@ -255,23 +297,75 @@ export class ChatService {
     });
   }
 
+  /**
+   * Messages d'un salon, page 1 = les plus recents, rendus du plus ancien au
+   * plus recent. Reserve aux membres : un identifiant de salon devine ne doit
+   * pas suffire a lire une conversation.
+   */
   async getRoomMessages(
     chatRoomId: string,
     page = 1,
     limit = 50,
-    userId?: string,
+    userId: string,
   ): Promise<Message[]> {
+    const room = await this.getRoomById(chatRoomId);
+    if (!room.members.some((m) => m.id === userId)) {
+      throw new ForbiddenException(
+        'Vous ne faites pas partie de cette conversation.',
+      );
+    }
+
+    const cleared = await this.usersService.getClearedRooms(userId);
+    const clearedAt = cleared[chatRoomId];
     const messages = await this.messagesRepo.find({
-      where: { chatRoomId },
+      where: {
+        chatRoomId,
+        ...(clearedAt ? { createdAt: MoreThan(new Date(clearedAt)) } : {}),
+      },
       relations: ['sender'],
-      order: { createdAt: 'ASC' },
+      order: { createdAt: 'DESC' },
       skip: (page - 1) * limit,
       take: limit,
     });
-    if (!userId) return messages;
-    return messages.filter(
-      (m) => !(m.deletedFor || []).includes(userId),
-    );
+    return messages
+      .reverse()
+      .filter((m) => !(m.deletedFor || []).includes(userId));
+  }
+
+  /**
+   * Le destinataire vient de se connecter : ce qu'on lui a envoye pendant son
+   * absence lui est desormais remis. Renvoie, par salon, les expediteurs a
+   * prevenir pour qu'ils passent de ✓ a ✓✓.
+   */
+  async markDeliveredFor(
+    userId: string,
+  ): Promise<{ roomId: string; senderIds: string[] }[]> {
+    const [rows]: [{ chat_room_id: string; sender_id: string }[], number] =
+      await this.messagesRepo.query(
+        `UPDATE "messages" SET "status" = 'delivered'
+          WHERE "status" = 'sent'
+            AND "sender_id" <> $1
+            AND "chat_room_id" IN (
+              SELECT "chat_room_id" FROM "chat_room_members" WHERE "user_id" = $1
+            )
+          RETURNING "chat_room_id", "sender_id"`,
+        [userId],
+      );
+    const byRoom = new Map<string, Set<string>>();
+    for (const row of rows ?? []) {
+      if (!byRoom.has(row.chat_room_id)) {
+        byRoom.set(row.chat_room_id, new Set());
+      }
+      byRoom.get(row.chat_room_id)!.add(row.sender_id);
+    }
+    return [...byRoom].map(([roomId, senders]) => ({
+      roomId,
+      senderIds: [...senders],
+    }));
+  }
+
+  async setMessageStatus(messageId: string, status: string): Promise<void> {
+    await this.messagesRepo.update(messageId, { status });
   }
 
   async deleteMessageForMe(
@@ -312,8 +406,8 @@ export class ChatService {
   async markMessagesAsRead(
     chatRoomId: string,
     userId: string,
-  ): Promise<void> {
-    await this.messagesRepo
+  ): Promise<number> {
+    const res = await this.messagesRepo
       .createQueryBuilder()
       .update(Message)
       .set({ status: 'read' })
@@ -321,6 +415,7 @@ export class ChatService {
       .andWhere('sender_id != :userId', { userId })
       .andWhere('status != :status', { status: 'read' })
       .execute();
+    return res.affected ?? 0;
   }
 
   private async loadGroupOrFail(roomId: string): Promise<ChatRoom> {

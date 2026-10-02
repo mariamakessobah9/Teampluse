@@ -33,8 +33,13 @@ export function useSocket() {
     });
   };
 
-  const sendTyping = (roomId: string, isTyping: boolean) => {
-    getSocket()?.emit('typing', { roomId, isTyping });
+  /** « écrit… » par défaut ; `recording` pendant l'enregistrement d'un vocal. */
+  const sendTyping = (
+    roomId: string,
+    isTyping: boolean,
+    activity: 'typing' | 'recording' = 'typing',
+  ) => {
+    getSocket()?.emit('typing', { roomId, isTyping, activity });
   };
 
   const markAsRead = (roomId: string) => {

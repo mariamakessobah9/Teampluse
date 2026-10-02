@@ -13,8 +13,9 @@ import { randomInt } from 'crypto';
 import { Organization } from './organization.entity';
 import { Invitation } from './invitation.entity';
 import { OrgRole, isOrgRole, roleAtLeast } from './org-role.enum';
-import { User } from '../users/user.entity';
+import { User, toPublicUser } from '../users/user.entity';
 import { ChatRoom } from '../chat/entities/chat-room.entity';
+import { detachUserFromRooms } from '../users/detach-from-rooms';
 
 /** Une invitation non utilisee expire au bout de sept jours. */
 const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -230,7 +231,8 @@ export class OrganizationsService implements OnModuleInit {
     return this.usersRepo.find({
       // Un compte supprime garde son organisation pour que ses anciens
       // messages restent rattaches, mais il n'a plus sa place dans l'annuaire.
-      where: { organizationId: orgId, deletedAt: IsNull() },
+      // Idem pour un membre retire par un administrateur.
+      where: { organizationId: orgId, deletedAt: IsNull(), removedAt: IsNull() },
       select: [
         'id',
         'name',
@@ -303,22 +305,26 @@ export class OrganizationsService implements OnModuleInit {
     return { ok: true };
   }
 
-  async setActive(
+  /**
+   * Regles communes a la desactivation et au retrait : on ne se vise pas
+   * soi-meme, le responsable est intouchable tant qu'il n'a pas transfere son
+   * role, et un administrateur ne touche pas a un compte de rang egal ou
+   * superieur.
+   */
+  private async manageableMemberOrFail(
     orgId: string,
     actor: { id: string; role: string },
     targetId: string,
-    isActive: boolean,
-  ): Promise<Partial<User>> {
+    verb: string,
+  ): Promise<User> {
     const target = await this.memberOrFail(orgId, targetId);
 
     if (actor.id === target.id) {
-      throw new ForbiddenException(
-        'Impossible de desactiver son propre compte.',
-      );
+      throw new ForbiddenException(`Impossible de ${verb} son propre compte.`);
     }
     if (target.role === OrgRole.Owner) {
       throw new ForbiddenException(
-        'Le responsable ne peut pas etre desactive ; transferez son role.',
+        `Impossible de ${verb} le responsable ; transferez d'abord son role.`,
       );
     }
     if (
@@ -329,6 +335,21 @@ export class OrganizationsService implements OnModuleInit {
         'Role insuffisant pour modifier ce compte.',
       );
     }
+    return target;
+  }
+
+  async setActive(
+    orgId: string,
+    actor: { id: string; role: string },
+    targetId: string,
+    isActive: boolean,
+  ): Promise<Partial<User>> {
+    const target = await this.manageableMemberOrFail(
+      orgId,
+      actor,
+      targetId,
+      'desactiver',
+    );
 
     await this.usersRepo.update(target.id, {
       isActive,
@@ -338,6 +359,39 @@ export class OrganizationsService implements OnModuleInit {
       ...(isActive ? {} : { pushTokens: [], isOnline: false }),
     });
     return this.publicMember({ ...target, isActive });
+  }
+
+  /**
+   * Retrait definitif de l'organisation. Contrairement a la desactivation, le
+   * compte disparait de l'annuaire et quitte toutes ses conversations ; ses
+   * messages deja envoyes restent lisibles par l'equipe.
+   *
+   * Renvoie les salons qu'il a quittes, pour prevenir leurs membres.
+   */
+  async removeMember(
+    orgId: string,
+    actor: { id: string; role: string },
+    targetId: string,
+  ): Promise<{ ok: true; roomIds: string[] }> {
+    const target = await this.manageableMemberOrFail(
+      orgId,
+      actor,
+      targetId,
+      'retirer',
+    );
+
+    const now = new Date();
+    await this.usersRepo.update(target.id, {
+      isActive: false,
+      removedAt: now,
+      deactivatedAt: now,
+      isOnline: false,
+      pushTokens: [],
+      pinnedRoomIds: [],
+      clearedRooms: null,
+    });
+    const roomIds = await detachUserFromRooms(this.usersRepo, target.id);
+    return { ok: true, roomIds };
   }
 
   // --- Invitations ---------------------------------------------------------
@@ -361,9 +415,11 @@ export class OrganizationsService implements OnModuleInit {
     });
     if (existingUser) {
       throw new ConflictException(
-        existingUser.organizationId === orgId
-          ? 'Ce compte fait deja partie de l’organisation.'
-          : 'Cette adresse est deja utilisee par un autre compte.',
+        existingUser.organizationId !== orgId
+          ? 'Cette adresse est deja utilisee par un autre compte.'
+          : existingUser.removedAt
+            ? 'Ce compte a ete retire de l’organisation.'
+            : 'Ce compte fait deja partie de l’organisation.',
       );
     }
 
@@ -450,15 +506,7 @@ export class OrganizationsService implements OnModuleInit {
   }
 
   private publicMember(user: Partial<User>): Partial<User> {
-    const {
-      password,
-      otp,
-      otpExpiresAt,
-      pushTokens,
-      pinnedRoomIds,
-      ...rest
-    } = user;
-    return rest;
+    return toPublicUser(user);
   }
 
   private normalizeDomains(domains: string[]): string[] {

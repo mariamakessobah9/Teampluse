@@ -41,6 +41,11 @@ export const setMemberActive = async (
     )
   ).data;
 
+/** Retrait définitif : le compte quitte l'organisation et ses conversations. */
+export const removeMember = async (userId: string): Promise<void> => {
+  await api.delete(`/organizations/me/members/${userId}`);
+};
+
 export const transferOwnership = async (userId: string): Promise<void> => {
   await api.post('/organizations/me/transfer-ownership', { userId });
 };

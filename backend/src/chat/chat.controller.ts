@@ -146,7 +146,26 @@ export class ChatController {
       messageId,
       userId,
     );
-    this.chatGateway.emitMessageDeleted(message.chatRoomId, message.id);
+    await this.chatGateway.emitMessageDeleted(message.chatRoomId, message.id);
+    return { ok: true };
+  }
+
+  /**
+   * Effacer la conversation depuis l'accueil, pour soi uniquement : les
+   * autres membres gardent tout. Elle reapparait au prochain message.
+   */
+  @Post('rooms/:id/clear')
+  async clearRoom(
+    @Param('id') roomId: string,
+    @CurrentUser('id') userId: string,
+  ) {
+    const room = await this.chatService.getRoomById(roomId);
+    if (!room.members.some((m) => m.id === userId)) {
+      throw new ForbiddenException(
+        'Vous ne faites pas partie de cette conversation.',
+      );
+    }
+    await this.usersService.clearRoom(userId, roomId);
     return { ok: true };
   }
 

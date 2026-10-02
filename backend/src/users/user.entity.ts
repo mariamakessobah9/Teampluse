@@ -13,6 +13,31 @@ import { ChatRoom } from '../chat/entities/chat-room.entity';
 import { Organization } from '../organizations/organization.entity';
 import { OrgRole } from '../organizations/org-role.enum';
 
+/**
+ * Champs qui ne quittent jamais le serveur. Un compte est envoye aux
+ * collegues dans les membres de chaque conversation et comme expediteur de
+ * chaque message : sans ce filtre, ils recevaient le hash du mot de passe et
+ * le code OTP en cours, de quoi reinitialiser le mot de passe et prendre le
+ * compte.
+ */
+export const PRIVATE_USER_FIELDS = [
+  'password',
+  'otp',
+  'otpExpiresAt',
+  'pushTokens',
+  'pinnedRoomIds',
+  'clearedRooms',
+] as const;
+
+/** Copie d'un compte sans ses champs prives, a renvoyer au client. */
+export function toPublicUser<T extends Partial<User>>(
+  user: T,
+): Omit<T, (typeof PRIVATE_USER_FIELDS)[number]> {
+  const copy: Record<string, unknown> = { ...user };
+  for (const field of PRIVATE_USER_FIELDS) delete copy[field];
+  return copy as Omit<T, (typeof PRIVATE_USER_FIELDS)[number]>;
+}
+
 @Entity('users')
 export class User {
   @PrimaryGeneratedColumn('uuid')
@@ -69,6 +94,22 @@ export class User {
   @Column({ type: 'timestamp', nullable: true })
   deletedAt: Date | null;
 
+  /**
+   * Retire de l'organisation par un administrateur. Le compte est desactive,
+   * quitte toutes ses conversations et disparait de l'annuaire ; ses messages
+   * deja envoyes restent lisibles.
+   */
+  @Column({ type: 'timestamp', nullable: true })
+  removedAt: Date | null;
+
+  /**
+   * Conversations effacees depuis l'accueil : identifiant du salon -> date ISO
+   * de l'effacement. Les messages anterieurs ne sont plus montres a cette
+   * personne, et le salon reapparait au message suivant.
+   */
+  @Column({ type: 'jsonb', nullable: true })
+  clearedRooms: Record<string, string> | null;
+
   @Column({ default: false })
   isOnline: boolean;
 
@@ -95,4 +136,12 @@ export class User {
 
   @UpdateDateColumn()
   updatedAt: Date;
+
+  /**
+   * Appele par JSON.stringify : couvre les reponses HTTP comme les evenements
+   * socket.io, ou qu'un compte soit imbrique (membres, expediteur, appelant).
+   */
+  toJSON() {
+    return toPublicUser(this);
+  }
 }

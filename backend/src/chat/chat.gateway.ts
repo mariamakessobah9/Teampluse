@@ -91,6 +91,14 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const payload = this.jwtService.verify(token);
       const userId = payload.sub;
 
+      // Un jeton reste valide jusqu'a expiration : sans ce controle, un compte
+      // desactive ou retire de l'organisation garderait le temps reel.
+      const user = await this.usersService.findByIdOrNull(userId);
+      if (!user || user.isActive === false) {
+        client.disconnect();
+        return;
+      }
+
       // Porte par le socket : `fetchSockets()` renvoie aussi les sockets des
       // autres instances, avec leur `data`. Une Map locale, elle, ne
       // connaitrait que les sockets de l'instance courante.
@@ -102,9 +110,47 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.server.emit('user-online', { userId });
 
       console.log(`User ${userId} connected (socket: ${client.id})`);
+
+      // Ce qui lui a ete envoye pendant son absence est maintenant remis :
+      // les expediteurs passent de ✓ a ✓✓.
+      const delivered = await this.chatService.markDeliveredFor(userId);
+      for (const { roomId, senderIds } of delivered) {
+        this.server
+          .to(senderIds.map(userRoomKey))
+          .emit('messages-delivered', { roomId });
+      }
     } catch {
       client.disconnect();
     }
+  }
+
+  /**
+   * Diffuse a chaque membre d'un salon, ou qu'il soit dans l'application.
+   * La room socket.io du salon ne contient que ceux qui ont la conversation
+   * ouverte : l'accueil (dernier message, « écrit… », coches) ne recevrait
+   * rien.
+   */
+  private emitToMembers(
+    room: ChatRoom,
+    event: string,
+    payload: unknown,
+    exceptUserId?: string,
+  ): void {
+    const targets = (room.members ?? [])
+      .map((m) => m.id)
+      .filter((id) => id !== exceptUserId)
+      .map(userRoomKey);
+    if (targets.length > 0) this.server.to(targets).emit(event, payload);
+  }
+
+  /** Salon dont cet utilisateur est membre, ou null. */
+  private async memberRoom(
+    roomId: string | undefined,
+    userId: string,
+  ): Promise<ChatRoom | null> {
+    if (!roomId) return null;
+    const room = await this.chatService.getRoomById(roomId).catch(() => null);
+    return room?.members?.some((m) => m.id === userId) ? room : null;
   }
 
   async handleDisconnect(client: Socket) {
@@ -511,12 +557,16 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { roomId: string },
   ) {
-    client.join(data.roomId);
     const userId = client.data.userId as string | undefined;
+    if (!userId) return;
+    const room = await this.memberRoom(data?.roomId, userId);
+    if (!room) return;
+    client.join(room.id);
 
-    // Mark messages as read when joining
-    if (userId) {
-      await this.chatService.markMessagesAsRead(data.roomId, userId);
+    // Ouvrir la conversation, c'est lire : les coches passent au bleu chez
+    // l'expediteur.
+    if (await this.chatService.markMessagesAsRead(room.id, userId)) {
+      this.emitToMembers(room, 'messages-read', { roomId: room.id, userId });
     }
 
     console.log(`Socket ${client.id} joined room ${data.roomId}`);
@@ -546,6 +596,9 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) {
     const userId = client.data.userId as string | undefined;
     if (!userId) return;
+    // Seul un membre ecrit dans un salon, et un compte retire n'en a plus.
+    const room = await this.memberRoom(data?.roomId, userId);
+    if (!room) return;
 
     const message = await this.chatService.sendMessage(
       data.roomId,
@@ -560,20 +613,25 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       },
     );
 
-    // Broadcast to all clients in the room
-    this.server.to(data.roomId).emit('new-message', message);
+    this.emitToMembers(room, 'new-message', message);
 
-    // Update message status to delivered for online users in the room
-    const roomSockets = await this.server.in(data.roomId).fetchSockets();
-    if (roomSockets.length > 1) {
-      this.server.to(data.roomId).emit('message-delivered', {
+    // ✓✓ des qu'un destinataire a l'application connectee, comme WhatsApp.
+    // Le passage au bleu viendra de son `mark-read`.
+    const otherIds = room.members.map((m) => m.id).filter((id) => id !== userId);
+    const onlineSockets = otherIds.length
+      ? await this.server.in(otherIds.map(userRoomKey)).fetchSockets()
+      : [];
+    if (onlineSockets.length > 0) {
+      await this.chatService.setMessageStatus(message.id, 'delivered');
+      message.status = 'delivered';
+      this.server.to(userRoomKey(userId)).emit('message-delivered', {
         messageId: message.id,
         roomId: data.roomId,
       });
     }
 
     // Push notification to members who aren't currently viewing the room
-    const room = await this.chatService.getRoomById(data.roomId);
+    const roomSockets = await this.server.in(data.roomId).fetchSockets();
     const activeUserIds = new Set(
       roomSockets
         .map((s) => s.data?.userId as string | undefined)
@@ -598,19 +656,32 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 
+  /**
+   * « écrit… » ou « enregistre un audio… », affiche dans la conversation et
+   * sur l'accueil.
+   */
   @SubscribeMessage('typing')
   async handleTyping(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { roomId: string; isTyping: boolean },
+    @MessageBody()
+    data: { roomId: string; isTyping: boolean; activity?: string },
   ) {
     const userId = client.data.userId as string | undefined;
     if (!userId) return;
+    const room = await this.memberRoom(data?.roomId, userId);
+    if (!room) return;
 
-    client.to(data.roomId).emit('user-typing', {
+    this.emitToMembers(
+      room,
+      'user-typing',
+      {
+        userId,
+        roomId: room.id,
+        isTyping: !!data.isTyping,
+        activity: data.activity === 'recording' ? 'recording' : 'typing',
+      },
       userId,
-      roomId: data.roomId,
-      isTyping: data.isTyping,
-    });
+    );
   }
 
   @SubscribeMessage('mark-read')
@@ -620,12 +691,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) {
     const userId = client.data.userId as string | undefined;
     if (!userId) return;
+    const room = await this.memberRoom(data?.roomId, userId);
+    if (!room) return;
 
-    await this.chatService.markMessagesAsRead(data.roomId, userId);
-    this.server.to(data.roomId).emit('messages-read', {
-      roomId: data.roomId,
-      userId,
-    });
+    if (await this.chatService.markMessagesAsRead(room.id, userId)) {
+      this.emitToMembers(room, 'messages-read', { roomId: room.id, userId });
+    }
   }
 
   // ---- Appels : evenements client ----
@@ -916,6 +987,27 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     };
   }
 
+  /**
+   * Le client vient d'enregistrer son profil : nom et photo sont relus en
+   * base (jamais pris du message) puis diffuses aux collegues, qui affichent
+   * aussitot la nouvelle photo au lieu de l'initiale.
+   */
+  @SubscribeMessage('profile-updated')
+  async handleProfileUpdated(@ConnectedSocket() client: Socket) {
+    const userId = client.data.userId as string | undefined;
+    if (!userId) return;
+    const user = await this.usersService.findByIdOrNull(userId);
+    if (!user?.organizationId) return;
+
+    const ids = await this.usersService.idsInOrganization(user.organizationId);
+    if (ids.length === 0) return;
+    this.server.to(ids.map(userRoomKey)).emit('user-updated', {
+      id: user.id,
+      name: user.name,
+      avatar: user.avatar ?? null,
+    });
+  }
+
   // ---- Helpers used by REST controllers to broadcast group changes ----
 
   emitRoomCreated(room: ChatRoom): void {
@@ -945,7 +1037,8 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 
-  emitMessageDeleted(roomId: string, messageId: string): void {
-    this.server.to(roomId).emit('message-deleted', { roomId, messageId });
+  async emitMessageDeleted(roomId: string, messageId: string): Promise<void> {
+    const room = await this.chatService.getRoomById(roomId).catch(() => null);
+    if (room) this.emitToMembers(room, 'message-deleted', { roomId, messageId });
   }
 }

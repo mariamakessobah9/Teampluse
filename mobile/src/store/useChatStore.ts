@@ -1,13 +1,14 @@
 import { create } from 'zustand';
 import api from '../services/api';
-import { ChatRoom, Message } from '../types';
+import { ChatRoom, Message, User } from '../types';
 import { useAuthStore } from './useAuthStore';
 
 interface ChatState {
   rooms: ChatRoom[];
   activeRoomId: string | null;
   messages: Record<string, Message[]>;
-  typingByRoom: Record<string, Record<string, true>>;
+  /** Par salon : qui écrit ou enregistre un vocal en ce moment. */
+  typingByRoom: Record<string, Record<string, TypingActivity>>;
 
   fetchRooms: () => Promise<void>;
   setActiveRoom: (roomId: string | null) => void;
@@ -17,11 +18,21 @@ interface ChatState {
   handleIncomingMessage: (message: Message) => void;
   updateMessageStatus: (messageId: string, roomId: string, status: string) => void;
   markRoomMessagesRead: (roomId: string, readerUserId: string) => void;
+  markRoomMessagesDelivered: (roomId: string) => void;
   deleteMessageForMe: (roomId: string, messageId: string) => Promise<void>;
   deleteMessageForEveryone: (roomId: string, messageId: string) => Promise<void>;
   markMessageDeleted: (roomId: string, messageId: string) => void;
   setUserOnline: (userId: string, isOnline: boolean) => void;
-  setTyping: (roomId: string, userId: string, isTyping: boolean) => void;
+  /** Nouveau nom ou nouvelle photo d'un collègue, partout où il apparaît. */
+  applyUserProfile: (profile: Pick<User, 'id' | 'name' | 'avatar'>) => void;
+  setTyping: (
+    roomId: string,
+    userId: string,
+    isTyping: boolean,
+    activity?: TypingActivity,
+  ) => void;
+  /** Efface la conversation pour soi ; elle revient au prochain message. */
+  clearRoom: (roomId: string) => Promise<void>;
 
   createDirectRoom: (targetUserId: string) => Promise<ChatRoom>;
   createGroupRoom: (
@@ -48,6 +59,18 @@ interface ChatState {
 
   reset: () => void;
 }
+
+export type TypingActivity = 'typing' | 'recording';
+
+const STATUS_RANK: Record<Message['status'], number> = {
+  sent: 0,
+  delivered: 1,
+  read: 2,
+};
+
+/** Un statut ne recule jamais : un ✓✓ tardif n'efface pas un « lu ». */
+const withStatus = (m: Message, status: Message['status']): Message =>
+  STATUS_RANK[status] > STATUS_RANK[m.status ?? 'sent'] ? { ...m, status } : m;
 
 const dedupById = <T extends { id: string }>(items: T[] | undefined): T[] => {
   if (!items) return [];
@@ -158,48 +181,86 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   updateMessageStatus: (messageId, roomId, status) => {
+    const next = status as Message['status'];
     set((state) => {
       const msgs = state.messages[roomId] || [];
       return {
         messages: {
           ...state.messages,
           [roomId]: msgs.map((m) =>
-            m.id === messageId ? { ...m, status: status as Message['status'] } : m,
+            m.id === messageId ? withStatus(m, next) : m,
           ),
         },
+        // Les coches de l'accueil suivent le dernier message.
+        rooms: state.rooms.map((r) =>
+          r.id === roomId && r.lastMessage?.id === messageId
+            ? { ...r, lastMessage: withStatus(r.lastMessage, next) }
+            : r,
+        ),
       };
     });
   },
 
   markRoomMessagesRead: (roomId, readerUserId) => {
+    const myId = useAuthStore.getState().user?.id;
     set((state) => {
       const msgs = state.messages[roomId] || [];
       return {
         messages: {
           ...state.messages,
           [roomId]: msgs.map((m) =>
-            m.senderId !== readerUserId && m.status !== 'read'
-              ? { ...m, status: 'read' as Message['status'] }
-              : m,
+            m.senderId !== readerUserId ? withStatus(m, 'read') : m,
           ),
         },
-        rooms: state.rooms.map((r) =>
-          r.id === roomId ? { ...r, unreadCount: 0 } : r,
-        ),
+        rooms: state.rooms.map((r) => {
+          if (r.id !== roomId) return r;
+          const last = r.lastMessage;
+          return {
+            ...r,
+            // Quelqu'un d'autre a lu : nos propres non-lus ne changent pas.
+            unreadCount: readerUserId === myId ? 0 : r.unreadCount,
+            lastMessage:
+              last && last.senderId !== readerUserId
+                ? withStatus(last, 'read')
+                : last,
+          };
+        }),
       };
     });
   },
 
-  deleteMessageForMe: async (roomId, messageId) => {
-    await api.delete(`/chat/messages/${messageId}/me`);
+  markRoomMessagesDelivered: (roomId) => {
+    const myId = useAuthStore.getState().user?.id;
     set((state) => ({
       messages: {
         ...state.messages,
-        [roomId]: (state.messages[roomId] || []).filter(
-          (m) => m.id !== messageId,
+        [roomId]: (state.messages[roomId] || []).map((m) =>
+          m.senderId === myId ? withStatus(m, 'delivered') : m,
         ),
       },
+      rooms: state.rooms.map((r) =>
+        r.id === roomId && r.lastMessage && r.lastMessage.senderId === myId
+          ? { ...r, lastMessage: withStatus(r.lastMessage, 'delivered') }
+          : r,
+      ),
     }));
+  },
+
+  deleteMessageForMe: async (roomId, messageId) => {
+    await api.delete(`/chat/messages/${messageId}/me`);
+    set((state) => {
+      const remaining = (state.messages[roomId] || []).filter(
+        (m) => m.id !== messageId,
+      );
+      return {
+        messages: { ...state.messages, [roomId]: remaining },
+        rooms: state.rooms.map((r) =>
+          r.id === roomId && r.lastMessage?.id === messageId
+            ? { ...r, lastMessage: remaining[remaining.length - 1] }
+            : r,
+        ),
+      };
+    });
   },
 
   deleteMessageForEveryone: async (roomId, messageId) => {
@@ -208,19 +269,23 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   markMessageDeleted: (roomId, messageId) => {
+    const erase = (m: Message): Message => ({
+      ...m,
+      deletedForEveryone: true,
+      content: '',
+      fileUrl: undefined,
+      fileName: undefined,
+    });
     set((state) => ({
+      rooms: state.rooms.map((r) =>
+        r.id === roomId && r.lastMessage?.id === messageId
+          ? { ...r, lastMessage: erase(r.lastMessage) }
+          : r,
+      ),
       messages: {
         ...state.messages,
         [roomId]: (state.messages[roomId] || []).map((m) =>
-          m.id === messageId
-            ? {
-                ...m,
-                deletedForEveryone: true,
-                content: '',
-                fileUrl: undefined,
-                fileName: undefined,
-              }
-            : m,
+          m.id === messageId ? erase(m) : m,
         ),
       },
     }));
@@ -237,15 +302,35 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }));
   },
 
-  setTyping: (roomId, userId, isTyping) => {
+  applyUserProfile: ({ id, name, avatar }) => {
+    const patchUser = <T extends { id: string }>(u: T): T =>
+      u.id === id ? { ...u, name, avatar: avatar ?? undefined } : u;
+    const patchMessage = (m: Message): Message =>
+      m.senderId === id && m.sender ? { ...m, sender: patchUser(m.sender) } : m;
+    set((state) => ({
+      rooms: state.rooms.map((r) => ({
+        ...r,
+        members: r.members?.map(patchUser),
+        lastMessage: r.lastMessage ? patchMessage(r.lastMessage) : r.lastMessage,
+      })),
+      messages: Object.fromEntries(
+        Object.entries(state.messages).map(([roomId, list]) => [
+          roomId,
+          list.map(patchMessage),
+        ]),
+      ),
+    }));
+  },
+
+  setTyping: (roomId, userId, isTyping, activity = 'typing') => {
     set((state) => {
       const room = state.typingByRoom[roomId];
       if (isTyping) {
-        if (room && room[userId]) return state;
+        if (room && room[userId] === activity) return state;
         return {
           typingByRoom: {
             ...state.typingByRoom,
-            [roomId]: { ...(room || {}), [userId]: true },
+            [roomId]: { ...(room || {}), [userId]: activity },
           },
         };
       }
@@ -257,6 +342,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
       else delete next[roomId];
       return { typingByRoom: next };
     });
+  },
+
+  clearRoom: async (roomId) => {
+    await api.post(`/chat/rooms/${roomId}/clear`);
+    get().removeRoom(roomId);
   },
 
   createDirectRoom: async (targetUserId) => {

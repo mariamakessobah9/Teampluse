@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   View,
   Text,
@@ -8,16 +8,17 @@ import {
   Alert,
 } from 'react-native';
 import { Image } from 'expo-image';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from 'nativewind';
-import { useChatStore } from '../../store/useChatStore';
+import { TypingActivity, useChatStore } from '../../store/useChatStore';
 import { useAuthStore } from '../../store/useAuthStore';
 import { ChatRoom, RootStackParamList, User } from '../../types';
 import ChatListSkeleton from '../../components/ChatListSkeleton';
 import Logo from '../../components/Logo';
+import MessageTicks from '../../components/MessageTicks';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 
@@ -68,29 +69,62 @@ const formatTime = (dateStr?: string) => {
   return date.toLocaleDateString();
 };
 
-const lastMessageText = (room: ChatRoom) => {
+const lastMessageText = (room: ChatRoom, currentUser?: User | null) => {
   const m = room.lastMessage;
   if (!m) return 'Aucun message';
+  if (m.deletedForEveryone) {
+    return m.senderId === currentUser?.id
+      ? 'Vous avez supprimé ce message'
+      : 'Ce message a été supprimé';
+  }
   let preview = m.content;
   if (m.type === 'image') preview = '📷 Photo';
   else if (m.type === 'file') preview = `📎 ${m.fileName || 'Document'}`;
   else if (m.type === 'voice') preview = '🎤 Message vocal';
-  const first = m.sender?.name?.split(' ')[0];
+  const first =
+    m.senderId === currentUser?.id ? 'Vous' : m.sender?.name?.split(' ')[0];
   return room.type === 'group' && first ? `${first}: ${preview}` : preview;
+};
+
+/**
+ * « écrit… » / « enregistre un audio… » à la place du dernier message, comme
+ * sur WhatsApp. Dans un groupe, on précise qui.
+ */
+const activityText = (
+  room: ChatRoom,
+  activity: Record<string, TypingActivity> | undefined,
+  currentUser?: User | null,
+): string | null => {
+  if (!activity) return null;
+  const entry = Object.entries(activity).find(([id]) => id !== currentUser?.id);
+  if (!entry) return null;
+  const [userId, kind] = entry;
+  const verb = kind === 'recording' ? 'enregistre un audio…' : 'écrit…';
+  if (room.type !== 'group') return verb;
+  const name = room.members?.find((m) => m.id === userId)?.name?.split(' ')[0];
+  return name ? `${name} ${verb}` : verb;
 };
 
 const RoomRow = React.memo(function RoomRow({
   item,
   currentUser,
+  activity,
+  isDark,
   onPress,
   onLongPress,
 }: {
   item: ChatRoom;
   currentUser?: User | null;
+  activity?: Record<string, TypingActivity>;
+  isDark: boolean;
   onPress: (room: ChatRoom) => void;
   onLongPress: (room: ChatRoom) => void;
 }) {
   const avatar = getRoomAvatar(item, currentUser);
+  const live = activityText(item, activity, currentUser);
+  const last = item.lastMessage;
+  const showTicks =
+    !live && last && last.senderId === currentUser?.id && !last.deletedForEveryone;
   return (
     <TouchableOpacity
       className="flex-row items-center px-4 py-3"
@@ -137,11 +171,24 @@ const RoomRow = React.memo(function RoomRow({
           </Text>
         </View>
         <View className="flex-row justify-between items-center mt-1">
+          {showTicks && (
+            <View className="mr-1">
+              <MessageTicks
+                status={last.status}
+                color={isDark ? '#94a3b8' : '#9ca3af'}
+                size={16}
+              />
+            </View>
+          )}
           <Text
-            className="text-ink-400 dark:text-slate-400 text-sm flex-1 mr-2"
+            className={`text-sm flex-1 mr-2 ${
+              live
+                ? 'text-primary-600 dark:text-primary-300 font-medium'
+                : 'text-ink-400 dark:text-slate-400'
+            }`}
             numberOfLines={1}
           >
-            {lastMessageText(item)}
+            {live ?? lastMessageText(item, currentUser)}
           </Text>
           {(item.unreadCount ?? 0) > 0 && (
             <View className="bg-primary-500 rounded-full min-w-[20px] h-5 px-1.5 items-center justify-center">
@@ -161,6 +208,8 @@ export default function ChatsScreen() {
   const fetchRooms = useChatStore((s) => s.fetchRooms);
   const pinRoom = useChatStore((s) => s.pinRoom);
   const unpinRoom = useChatStore((s) => s.unpinRoom);
+  const clearRoom = useChatStore((s) => s.clearRoom);
+  const typingByRoom = useChatStore((s) => s.typingByRoom);
   const currentUser = useAuthStore((s) => s.user);
   const nav = useNavigation<Nav>();
   const insets = useSafeAreaInsets();
@@ -173,9 +222,15 @@ export default function ChatsScreen() {
   // liste vide s'affiche une fraction de seconde comme si le compte etait vide.
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    Promise.resolve(fetchRooms()).finally(() => setLoading(false));
-  }, []);
+  // A chaque retour sur l'accueil : photos, noms et membres a jour, meme si
+  // un evenement temps reel a ete manque pendant que l'app dormait.
+  useFocusEffect(
+    useCallback(() => {
+      Promise.resolve(fetchRooms())
+        .catch(() => undefined)
+        .finally(() => setLoading(false));
+    }, [fetchRooms]),
+  );
 
   const openRoom = useCallback(
     (room: ChatRoom) =>
@@ -186,17 +241,46 @@ export default function ChatsScreen() {
     [nav, currentUser],
   );
 
-  const handleTogglePin = useCallback(
+  const confirmClear = useCallback(
+    (room: ChatRoom) => {
+      Alert.alert(
+        'Supprimer la conversation ?',
+        'Les messages seront supprimés de votre appareil uniquement. Les autres participants les conservent.',
+        [
+          { text: 'Annuler', style: 'cancel' },
+          {
+            text: 'Supprimer',
+            style: 'destructive',
+            onPress: () =>
+              clearRoom(room.id).catch((e: any) =>
+                Alert.alert(
+                  'Suppression impossible',
+                  e?.response?.data?.message || 'Veuillez réessayer.',
+                ),
+              ),
+          },
+        ],
+      );
+    },
+    [clearRoom],
+  );
+
+  const handleRoomActions = useCallback(
     (room: ChatRoom) => {
       const name = getRoomDisplayName(room, currentUser);
       Alert.alert(name, undefined, [
-        { text: 'Annuler', style: 'cancel' },
         room.isPinned
           ? { text: 'Détacher la conversation', onPress: () => unpinRoom(room.id) }
           : { text: 'Épingler la conversation', onPress: () => pinRoom(room.id) },
+        {
+          text: 'Supprimer la conversation',
+          style: 'destructive',
+          onPress: () => confirmClear(room),
+        },
+        { text: 'Annuler', style: 'cancel' },
       ]);
     },
-    [currentUser, pinRoom, unpinRoom],
+    [currentUser, pinRoom, unpinRoom, confirmClear],
   );
 
   const filteredRooms = rooms.filter((r) => {
@@ -250,7 +334,7 @@ export default function ChatsScreen() {
     <TouchableOpacity
       key={room.id}
       onPress={() => openRoom(room)}
-      onLongPress={() => handleTogglePin(room)}
+      onLongPress={() => handleRoomActions(room)}
       activeOpacity={0.85}
       className="bg-surface-card dark:bg-dark-100 rounded-2xl p-4 mr-3 shadow-sm"
       style={{ width: 248 }}
@@ -269,7 +353,8 @@ export default function ChatsScreen() {
         className="text-ink-400 dark:text-slate-400 text-sm mt-1"
         numberOfLines={1}
       >
-        {lastMessageText(room)}
+        {activityText(room, typingByRoom[room.id], currentUser) ??
+          lastMessageText(room, currentUser)}
       </Text>
     </TouchableOpacity>
   );
@@ -279,11 +364,13 @@ export default function ChatsScreen() {
       <RoomRow
         item={item}
         currentUser={currentUser}
+        activity={typingByRoom[item.id]}
+        isDark={isDark}
         onPress={openRoom}
-        onLongPress={handleTogglePin}
+        onLongPress={handleRoomActions}
       />
     ),
-    [currentUser, openRoom, handleTogglePin],
+    [currentUser, typingByRoom, isDark, openRoom, handleRoomActions],
   );
 
   const ListHeader = (

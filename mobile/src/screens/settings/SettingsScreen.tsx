@@ -1,14 +1,15 @@
 import React, { useState } from 'react';
 import {
-  View,
-  Text,
-  TouchableOpacity,
-  Alert,
-  ScrollView,
   ActivityIndicator,
-  Modal,
-  TextInput,
+  Alert,
+  KeyboardAvoidingView,
   Linking,
+  Modal,
+  ScrollView,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
@@ -447,7 +448,11 @@ Les messages déjà envoyés restent dans les conversations de vos collègues, a
         animationType="fade"
         onRequestClose={() => setNameModalOpen(false)}
       >
-        <View className="flex-1 bg-black/40 items-center justify-center px-8">
+        <KeyboardAvoidingView
+          // La boîte remonte avec le clavier : champ et boutons restent visibles.
+          behavior="padding"
+          className="flex-1 bg-black/40 items-center justify-center px-8"
+        >
           <View className="bg-surface-card dark:bg-dark-300 rounded-2xl w-full p-5">
             <Text className="text-ink-900 dark:text-white font-bold text-lg mb-1">
               Votre nom
@@ -487,7 +492,7 @@ Les messages déjà envoyés restent dans les conversations de vos collègues, a
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Confirmation de suppression */}
@@ -497,7 +502,11 @@ Les messages déjà envoyés restent dans les conversations de vos collègues, a
         animationType="fade"
         onRequestClose={() => setDeleteOpen(false)}
       >
-        <View className="flex-1 bg-black/40 items-center justify-center px-8">
+        <KeyboardAvoidingView
+          // La boîte remonte avec le clavier : champ et boutons restent visibles.
+          behavior="padding"
+          className="flex-1 bg-black/40 items-center justify-center px-8"
+        >
           <View className="bg-surface-card dark:bg-dark-300 rounded-2xl w-full p-5">
             <Text className="text-ink-900 dark:text-white font-bold text-lg mb-1">
               Confirmer la suppression
@@ -537,7 +546,7 @@ Les messages déjà envoyés restent dans les conversations de vos collègues, a
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Phone number edit modal */}
@@ -547,7 +556,11 @@ Les messages déjà envoyés restent dans les conversations de vos collègues, a
         animationType="fade"
         onRequestClose={() => setPhoneModalOpen(false)}
       >
-        <View className="flex-1 bg-black/40 items-center justify-center px-8">
+        <KeyboardAvoidingView
+          // La boîte remonte avec le clavier : champ et boutons restent visibles.
+          behavior="padding"
+          className="flex-1 bg-black/40 items-center justify-center px-8"
+        >
           <View className="bg-surface-card dark:bg-dark-300 rounded-2xl w-full p-5">
             <Text className="text-ink-900 dark:text-white font-bold text-lg mb-1">
               Numéro de téléphone
@@ -588,7 +601,7 @@ Les messages déjà envoyés restent dans les conversations de vos collègues, a
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );

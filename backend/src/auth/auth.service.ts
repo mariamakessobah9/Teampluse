@@ -254,6 +254,12 @@ export class AuthService {
 
   /** Refuse un compte revoque par un administrateur. */
   private assertActive(user: User): void {
+    if (user.removedAt) {
+      throw new ForbiddenException({
+        message: "Ce compte a ete retire de l'organisation par un administrateur.",
+        code: 'ACCOUNT_REMOVED',
+      });
+    }
     if (user.isActive === false) {
       throw new ForbiddenException({
         message:

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import * as SecureStore from 'expo-secure-store';
+import { getSocket } from '../services/socket';
 import api from '../services/api';
 import { unregisterActivePushToken } from '../services/notifications';
 import { User } from '../types';
@@ -121,6 +122,9 @@ export const useAuthStore = create<AuthState>((set) => ({
   updateProfile: async (payload) => {
     const { data } = await api.patch('/users/me', payload);
     set({ user: data });
+    // Les collegues recoivent la nouvelle photo et le nouveau nom sans
+    // recharger l'application.
+    getSocket()?.emit('profile-updated');
     return data;
   },
 }));

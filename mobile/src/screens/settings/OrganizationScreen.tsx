@@ -2,6 +2,7 @@ import React, { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
   Modal,
   ScrollView,
   Text,
@@ -23,6 +24,7 @@ import {
   getMembers,
   getOrganization,
   inviteMember,
+  removeMember,
   revokeInvitation,
   setMemberActive,
   transferOwnership,
@@ -36,6 +38,12 @@ const ROLE_LABEL: Record<OrgRole, string> = {
   owner: 'Responsable',
   admin: 'Administrateur',
   member: 'Membre',
+};
+
+type MemberAction = {
+  text: string;
+  style?: 'destructive';
+  onPress: () => void;
 };
 
 const errorMessage = (err: any, fallback: string) =>
@@ -83,6 +91,13 @@ export default function OrganizationScreen() {
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<OrgRole>('member');
   const [inviting, setInviting] = useState(false);
+
+  // Feuille d'actions plutôt qu'Alert : Android n'affiche que trois boutons
+  // et masquerait les dernières actions.
+  const [memberSheet, setMemberSheet] = useState<{
+    member: OrgMember;
+    actions: MemberAction[];
+  } | null>(null);
 
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameValue, setRenameValue] = useState('');
@@ -164,9 +179,7 @@ export default function OrganizationScreen() {
   const openMemberActions = (member: OrgMember) => {
     if (!isAdmin || member.id === currentUser?.id) return;
 
-    const actions: Parameters<typeof Alert.alert>[2] = [
-      { text: 'Annuler', style: 'cancel' },
-    ];
+    const actions: MemberAction[] = [];
 
     if (member.role !== 'owner') {
       actions.push(
@@ -232,9 +245,28 @@ export default function OrganizationScreen() {
                 ),
             },
       );
+
+      actions.push({
+        text: 'Retirer de l’organisation',
+        style: 'destructive',
+        onPress: () =>
+          Alert.alert(
+            `Retirer ${member.name} ?`,
+            'Cette personne perdra l’accès à l’organisation et sera retirée de toutes les conversations. Ses messages déjà envoyés restent visibles.',
+            [
+              { text: 'Annuler', style: 'cancel' },
+              {
+                text: 'Retirer',
+                style: 'destructive',
+                onPress: () =>
+                  run(() => removeMember(member.id), 'Retrait impossible'),
+              },
+            ],
+          ),
+      });
     }
 
-    Alert.alert(member.name, member.email, actions);
+    if (actions.length > 0) setMemberSheet({ member, actions });
   };
 
   // Modale plutôt qu'Alert.prompt : ce dernier n'existe que sur iOS et ne
@@ -423,12 +455,73 @@ export default function OrganizationScreen() {
 
           {!isAdmin && (
             <Text className="text-ink-400 dark:text-slate-400 text-xs mx-6 mt-4">
-              Seuls les administrateurs peuvent inviter, changer les rôles ou
-              désactiver un compte.
+              Seuls les administrateurs peuvent inviter, changer les rôles,
+              désactiver ou retirer un compte.
             </Text>
           )}
         </ScrollView>
       )}
+
+      {/* Actions sur un membre */}
+      <Modal
+        visible={!!memberSheet}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setMemberSheet(null)}
+      >
+        <TouchableOpacity
+          activeOpacity={1}
+          onPress={() => setMemberSheet(null)}
+          className="flex-1 bg-black/40 justify-end"
+        >
+          <View
+            // Capte les appuis : un appui dans la feuille ne la ferme pas.
+            onStartShouldSetResponder={() => true}
+            className="bg-surface-card dark:bg-dark-300 rounded-t-3xl px-4 pt-4"
+            style={{ paddingBottom: insets.bottom + 16 }}
+          >
+            <View className="items-center mb-3">
+              <View className="w-10 h-1 rounded-full bg-ink-200 dark:bg-slate-600" />
+            </View>
+            <Text className="text-ink-900 dark:text-white font-bold text-base px-2">
+              {memberSheet?.member.name}
+            </Text>
+            <Text className="text-ink-400 dark:text-slate-400 text-sm px-2 mb-2">
+              {memberSheet?.member.email}
+            </Text>
+            {memberSheet?.actions.map((a) => (
+              <TouchableOpacity
+                key={a.text}
+                activeOpacity={0.7}
+                onPress={() => {
+                  setMemberSheet(null);
+                  a.onPress();
+                }}
+                className="px-2 py-3.5 border-t border-ink-200/40 dark:border-slate-700/50"
+              >
+                <Text
+                  className={`text-base font-medium ${
+                    a.style === 'destructive'
+                      ? 'text-red-600'
+                      : 'text-ink-900 dark:text-white'
+                  }`}
+                >
+                  {a.text}
+                </Text>
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={() => setMemberSheet(null)}
+              className="mt-2 py-3 rounded-2xl bg-surface-chip dark:bg-dark-100 items-center"
+            >
+              <Text className="text-ink-700 dark:text-slate-200 font-semibold">
+                Annuler
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
 
       {/* Renommage */}
       <Modal
@@ -437,7 +530,11 @@ export default function OrganizationScreen() {
         animationType="fade"
         onRequestClose={() => setRenameOpen(false)}
       >
-        <View className="flex-1 bg-black/40 items-center justify-center px-8">
+        <KeyboardAvoidingView
+          // La boîte remonte avec le clavier : champ et boutons restent visibles.
+          behavior="padding"
+          className="flex-1 bg-black/40 items-center justify-center px-8"
+        >
           <View className="bg-surface-card dark:bg-dark-300 rounded-2xl w-full p-5">
             <Text className="text-ink-900 dark:text-white font-bold text-lg mb-4">
               Nom de l’organisation
@@ -473,7 +570,7 @@ export default function OrganizationScreen() {
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Invitation */}
@@ -483,7 +580,11 @@ export default function OrganizationScreen() {
         animationType="fade"
         onRequestClose={() => setInviteOpen(false)}
       >
-        <View className="flex-1 bg-black/40 items-center justify-center px-8">
+        <KeyboardAvoidingView
+          // La boîte remonte avec le clavier : champ et boutons restent visibles.
+          behavior="padding"
+          className="flex-1 bg-black/40 items-center justify-center px-8"
+        >
           <View className="bg-surface-card dark:bg-dark-300 rounded-2xl w-full p-5">
             <Text className="text-ink-900 dark:text-white font-bold text-lg mb-1">
               Inviter un collègue
@@ -551,7 +652,7 @@ export default function OrganizationScreen() {
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );

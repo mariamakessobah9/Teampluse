@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
-import { connectSocket, disconnectSocket } from '../services/socket';
+import { connectSocket, disconnectSocket, getSocket } from '../services/socket';
 import { useAuthStore } from '../store/useAuthStore';
-import { useChatStore } from '../store/useChatStore';
+import { TypingActivity, useChatStore } from '../store/useChatStore';
 import { useBannerStore } from '../store/useBannerStore';
 import { setAppBadgeCount } from '../services/notifications';
 import { callManager } from '../services/callManager';
@@ -25,7 +25,7 @@ const messagePreview = (message: Message): string => {
     case 'file':
       return `📎 ${message.fileName || 'Document'}`;
     case 'voice':
-      return '🎤 Voice message';
+      return '🎤 Message vocal';
     default:
       return message.content || '';
   }
@@ -55,7 +55,18 @@ export function useGlobalSocket() {
 
         const myId = useAuthStore.getState().user?.id;
         if (message.senderId === myId) return;
-        if (chat.activeRoomId === message.chatRoomId) return;
+
+        // Son message est arrive : il n'ecrit plus.
+        const typingKey = `${message.chatRoomId}:${message.senderId}`;
+        clearTypingTimer(typingKey);
+        chat.setTyping(message.chatRoomId, message.senderId, false);
+
+        // Conversation ouverte : le message est lu tout de suite, les coches
+        // passent au bleu chez l'expediteur.
+        if (chat.activeRoomId === message.chatRoomId) {
+          getSocket()?.emit('mark-read', { roomId: message.chatRoomId });
+          return;
+        }
 
         // App is open but the user isn't in this room — show in-app banner.
         const room = chat.rooms.find((r) => r.id === message.chatRoomId);
@@ -74,6 +85,12 @@ export function useGlobalSocket() {
         useChatStore.getState().updateMessageStatus(messageId, roomId, 'delivered');
       });
 
+      // Le destinataire s'est reconnecte : nos messages en attente lui sont
+      // remis.
+      socket.on('messages-delivered', ({ roomId }: { roomId: string }) => {
+        useChatStore.getState().markRoomMessagesDelivered(roomId);
+      });
+
       socket.on('messages-read', ({ roomId, userId }) => {
         useChatStore.getState().markRoomMessagesRead(roomId, userId);
       });
@@ -82,6 +99,17 @@ export function useGlobalSocket() {
         'message-deleted',
         ({ roomId, messageId }: { roomId: string; messageId: string }) => {
           useChatStore.getState().markMessageDeleted(roomId, messageId);
+        },
+      );
+
+      socket.on(
+        'user-updated',
+        (profile: { id: string; name: string; avatar: string | null }) => {
+          useChatStore.getState().applyUserProfile({
+            id: profile.id,
+            name: profile.name,
+            avatar: profile.avatar ?? undefined,
+          });
         },
       );
 
@@ -99,14 +127,18 @@ export function useGlobalSocket() {
           userId,
           roomId,
           isTyping,
+          activity,
         }: {
           userId: string;
           roomId: string;
           isTyping: boolean;
+          activity?: TypingActivity;
         }) => {
           const key = `${roomId}:${userId}`;
           clearTypingTimer(key);
-          useChatStore.getState().setTyping(roomId, userId, isTyping);
+          useChatStore
+            .getState()
+            .setTyping(roomId, userId, isTyping, activity ?? 'typing');
           if (isTyping) {
             typingTimers.set(
               key,

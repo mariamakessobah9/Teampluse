@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { UsersService } from './users.service';
+import { toPublicUser } from './user.entity';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 
@@ -21,9 +22,7 @@ export class UsersController {
 
   @Get('me')
   async getMe(@CurrentUser() current: { id: string }) {
-    const user = await this.usersService.findById(current.id);
-    const { password, otp, otpExpiresAt, ...result } = user;
-    return result;
+    return toPublicUser(await this.usersService.findById(current.id));
   }
 
   @Patch('me')
@@ -42,9 +41,7 @@ export class UsersController {
     if (body.avatar !== undefined) patch.avatar = body.avatar || null;
     if (body.phone !== undefined)
       patch.phone = body.phone ? body.phone.trim() : null;
-    const updated = await this.usersService.update(currentId, patch);
-    const { password, otp, otpExpiresAt, ...result } = updated;
-    return result;
+    return toPublicUser(await this.usersService.update(currentId, patch));
   }
 
   @Post('push-token')
@@ -93,11 +90,8 @@ export class UsersController {
     @CurrentUser() current: { organizationId: string | null },
     @Param('id') id: string,
   ) {
-    const user = await this.usersService.findInOrganization(
-      id,
-      current.organizationId,
+    return toPublicUser(
+      await this.usersService.findInOrganization(id, current.organizationId),
     );
-    const { password, otp, otpExpiresAt, ...result } = user;
-    return result;
   }
 }

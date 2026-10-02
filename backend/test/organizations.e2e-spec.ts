@@ -367,6 +367,117 @@ describe('Organisations : cloisonnement et roles', () => {
     });
   });
 
+  // --- Donnees privees ---------------------------------------------------------
+
+  describe('donnees privees', () => {
+    it("n'expose ni mot de passe ni code OTP des collegues", async () => {
+      const owner = await signUp('a@acme.test', { organizationName: 'Acme' });
+      const member = await signUp('b@acme.test', {
+        invitationToken: await invite(owner, 'b@acme.test'),
+      });
+      // Un OTP de reinitialisation en cours : c'est lui qui permettait de
+      // prendre le compte.
+      await http()
+        .post('/api/auth/forgot-password')
+        .send({ email: member.email });
+
+      const rooms = await http()
+        .get('/api/chat/rooms')
+        .set(auth(owner))
+        .expect(200);
+      const profile = await http()
+        .get(`/api/users/profile/${member.userId}`)
+        .set(auth(owner))
+        .expect(200);
+
+      const users = [
+        ...rooms.body.flatMap((r: { members: object[] }) => r.members),
+        profile.body,
+      ];
+      expect(users.length).toBeGreaterThan(1);
+      for (const user of users) {
+        for (const field of [
+          'password',
+          'otp',
+          'otpExpiresAt',
+          'pushTokens',
+          'pinnedRoomIds',
+          'clearedRooms',
+        ]) {
+          expect(user).not.toHaveProperty(field);
+        }
+      }
+    });
+  });
+
+  // --- Retrait de l'organisation -------------------------------------------
+
+  describe("retrait de l'organisation", () => {
+    it("retire le compte de l'annuaire, des conversations et bloque la connexion", async () => {
+      const owner = await signUp('a@acme.test', { organizationName: 'Acme' });
+      const member = await signUp('b@acme.test', {
+        invitationToken: await invite(owner, 'b@acme.test'),
+      });
+      await http()
+        .post('/api/chat/rooms/direct')
+        .set(auth(owner))
+        .send({ targetUserId: member.userId })
+        .expect(201);
+
+      // Un membre ne retire personne.
+      await http()
+        .delete(`/api/organizations/me/members/${owner.userId}`)
+        .set(auth(member))
+        .expect(403);
+
+      await http()
+        .delete(`/api/organizations/me/members/${member.userId}`)
+        .set(auth(owner))
+        .expect(200);
+
+      const members = await http()
+        .get('/api/organizations/me/members')
+        .set(auth(owner))
+        .expect(200);
+      expect(members.body.map((m: { id: string }) => m.id)).toEqual([
+        owner.userId,
+      ]);
+
+      // Ni la conversation directe, ni sa place dans #general.
+      const rooms = await http()
+        .get('/api/chat/rooms')
+        .set(auth(owner))
+        .expect(200);
+      expect(rooms.body.some((r: { type: string }) => r.type === 'direct')).toBe(
+        false,
+      );
+      for (const room of rooms.body) {
+        expect(room.members.map((m: { id: string }) => m.id)).not.toContain(
+          member.userId,
+        );
+      }
+
+      await http().get('/api/users/me').set(auth(member)).expect(401);
+      const login = await http()
+        .post('/api/auth/login')
+        .send({ email: member.email, password: PASSWORD })
+        .expect(403);
+      expect(login.body.code).toBe('ACCOUNT_REMOVED');
+    });
+
+    it('ne permet pas de retirer le responsable', async () => {
+      const owner = await signUp('a@acme.test', { organizationName: 'Acme' });
+      const admin = await signUp('b@acme.test', {
+        invitationToken: await invite(owner, 'b@acme.test', 'admin'),
+      });
+
+      await http()
+        .delete(`/api/organizations/me/members/${owner.userId}`)
+        .set(auth(admin))
+        .expect(403);
+    });
+  });
+
   // --- Suppression de compte -----------------------------------------------
 
   describe('suppression de compte', () => {
@@ -409,6 +520,17 @@ describe('Organisations : cloisonnement et roles', () => {
         .set(auth(owner))
         .expect(200);
       expect(members.body).toHaveLength(1);
+
+      // Plus de « Compte supprime » dans les conversations des collegues.
+      const rooms = await http()
+        .get('/api/chat/rooms')
+        .set(auth(owner))
+        .expect(200);
+      for (const room of rooms.body) {
+        expect(room.members.map((m: { id: string }) => m.id)).not.toContain(
+          member.userId,
+        );
+      }
     });
 
     it('impose au responsable de transferer son role au prealable', async () => {

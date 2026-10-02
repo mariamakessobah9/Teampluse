@@ -76,6 +76,13 @@ export class OrganizationsController {
     return this.orgs.setActive(actor.organizationId, actor, userId, true);
   }
 
+  /** Retrait definitif : le compte quitte l'organisation et ses conversations. */
+  @Delete('me/members/:userId')
+  @MinRole(OrgRole.Admin)
+  async remove(@CurrentUser() actor: Actor, @Param('userId') userId: string) {
+    return this.orgs.removeMember(actor.organizationId, actor, userId);
+  }
+
   @Post('me/transfer-ownership')
   @MinRole(OrgRole.Owner)
   async transferOwnership(
