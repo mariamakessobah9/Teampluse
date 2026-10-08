@@ -1,12 +1,26 @@
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import Constants from 'expo-constants';
-import { Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import api from './api';
+import { getSocket } from './socket';
 import { useCallStore } from '../store/useCallStore';
+import { useChatStore } from '../store/useChatStore';
 
 /** Canal Android des appels : sonnerie et priorite maximale. */
 export const CALL_CHANNEL_ID = 'calls';
+
+/** Categorie des messages : « Répondre » et « Marquer comme lu ». */
+export const MESSAGE_CATEGORY_ID = 'message';
+export const REPLY_ACTION_ID = 'reply';
+export const MARK_READ_ACTION_ID = 'mark-read';
+
+const HIDDEN = {
+  shouldShowBanner: false,
+  shouldShowList: false,
+  shouldPlaySound: false,
+  shouldSetBadge: false,
+};
 
 // How notifications behave while the app is in the foreground.
 Notifications.setNotificationHandler({
@@ -23,14 +37,27 @@ Notifications.setNotificationHandler({
       const ringing =
         call.status !== 'idle' &&
         (!data.callId || data.callId === call.callId);
-      if (ringing) {
-        return {
-          shouldShowBanner: false,
-          shouldShowList: false,
-          shouldPlaySound: false,
-          shouldSetBadge: false,
-        };
-      }
+      if (ringing) return HIDDEN;
+    }
+
+    // Application ouverte et socket connecte : le message arrive aussi par
+    // le socket, qui affiche deja la banniere interne (ou rien si la
+    // conversation est a l'ecran). Pas de doublon systeme, comme WhatsApp.
+    if (
+      data?.type === 'message' &&
+      AppState.currentState === 'active' &&
+      getSocket()?.connected
+    ) {
+      return HIDDEN;
+    }
+    const roomId = (data as { roomId?: string } | undefined)?.roomId;
+    if (
+      data?.type === 'message' &&
+      AppState.currentState === 'active' &&
+      roomId &&
+      useChatStore.getState().activeRoomId === roomId
+    ) {
+      return HIDDEN;
     }
 
     return {
@@ -75,6 +102,8 @@ export async function registerForPushNotifications(): Promise<string | null> {
         Notifications.AndroidNotificationVisibility.PUBLIC,
     });
   }
+
+  await registerNotificationCategories();
 
   const existing = await Notifications.getPermissionsAsync();
   let status = existing.status;
@@ -130,4 +159,66 @@ export async function setAppBadgeCount(count: number): Promise<void> {
   } catch {
     // badge not supported on this platform — ignore
   }
+}
+
+/** Actions affichees sous une notification de message. */
+async function registerNotificationCategories(): Promise<void> {
+  try {
+    await Notifications.setNotificationCategoryAsync(MESSAGE_CATEGORY_ID, [
+      {
+        identifier: REPLY_ACTION_ID,
+        buttonTitle: 'Répondre',
+        textInput: {
+          submitButtonTitle: 'Envoyer',
+          placeholder: 'Message',
+        },
+        options: { opensAppToForeground: false },
+      },
+      {
+        identifier: MARK_READ_ACTION_ID,
+        buttonTitle: 'Marquer comme lu',
+        options: { opensAppToForeground: false },
+      },
+    ]);
+  } catch (e) {
+    console.warn('[notifications] could not register categories:', e);
+  }
+}
+
+/**
+ * Retire du volet les notifications d'une conversation, une fois celle-ci
+ * ouverte ou lue ailleurs.
+ */
+export async function dismissRoomNotifications(roomId: string): Promise<void> {
+  try {
+    const presented = await Notifications.getPresentedNotificationsAsync();
+    await Promise.all(
+      presented
+        .filter(
+          (n) =>
+            (n.request.content.data as { roomId?: string } | undefined)
+              ?.roomId === roomId,
+        )
+        .map((n) => Notifications.dismissNotificationAsync(n.request.identifier)),
+    );
+  } catch {
+    // volet inaccessible sur cette plateforme — ignorer
+  }
+}
+
+/** « Répondre » depuis la notification, sans ouvrir l'application. */
+export async function replyFromNotification(
+  roomId: string,
+  content: string,
+): Promise<void> {
+  const text = content.trim();
+  if (!text) return;
+  await api.post(`/chat/rooms/${roomId}/messages`, { content: text });
+}
+
+/** « Marquer comme lu » depuis la notification. */
+export async function markRoomReadFromNotification(
+  roomId: string,
+): Promise<void> {
+  await api.post(`/chat/rooms/${roomId}/read`);
 }

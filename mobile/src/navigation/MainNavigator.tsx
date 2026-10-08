@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
@@ -18,6 +18,7 @@ import OrganizationScreen from '../screens/settings/OrganizationScreen';
 import SearchScreen from '../screens/SearchScreen';
 import SettingsScreen from '../screens/settings/SettingsScreen';
 import { MainTabParamList, RootStackParamList } from '../types';
+import { flushPendingNavigation } from './navigationRef';
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -78,6 +79,13 @@ function TabNavigator() {
 }
 
 export default function MainNavigator() {
+  // Conversation demandee par une notification avant que cette navigation
+  // n'existe : on l'ouvre des que l'etat du stack est enregistre.
+  useEffect(() => {
+    const frame = requestAnimationFrame(flushPendingNavigation);
+    return () => cancelAnimationFrame(frame);
+  }, []);
+
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="Main" component={TabNavigator} />

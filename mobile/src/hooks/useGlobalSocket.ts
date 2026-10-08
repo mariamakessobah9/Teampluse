@@ -1,9 +1,13 @@
 import { useEffect } from 'react';
+import { AppState, Vibration } from 'react-native';
 import { connectSocket, disconnectSocket, getSocket } from '../services/socket';
 import { useAuthStore } from '../store/useAuthStore';
 import { TypingActivity, useChatStore } from '../store/useChatStore';
 import { useBannerStore } from '../store/useBannerStore';
-import { setAppBadgeCount } from '../services/notifications';
+import {
+  dismissRoomNotifications,
+  setAppBadgeCount,
+} from '../services/notifications';
 import { callManager } from '../services/callManager';
 import { ChatRoom, Message } from '../types';
 
@@ -68,7 +72,13 @@ export function useGlobalSocket() {
           return;
         }
 
-        // App is open but the user isn't in this room — show in-app banner.
+        // Application en arriere-plan : la notification poussee prend le
+        // relais, rien a afficher ici.
+        if (AppState.currentState !== 'active') return;
+
+        // App is open but the user isn't in this room — show in-app banner,
+        // avec une courte vibration comme WhatsApp.
+        Vibration.vibrate(60);
         const room = chat.rooms.find((r) => r.id === message.chatRoomId);
         const senderName = message.sender?.name || 'New message';
         const isGroup = room?.type === 'group';
@@ -93,6 +103,11 @@ export function useGlobalSocket() {
 
       socket.on('messages-read', ({ roomId, userId }) => {
         useChatStore.getState().markRoomMessagesRead(roomId, userId);
+        // Lu depuis un autre appareil ou une action de notification : la
+        // conversation quitte le volet.
+        if (userId === useAuthStore.getState().user?.id) {
+          void dismissRoomNotifications(roomId);
+        }
       });
 
       socket.on(

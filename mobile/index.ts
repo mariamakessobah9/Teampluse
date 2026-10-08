@@ -1,6 +1,10 @@
 import { registerRootComponent } from 'expo';
 
 import App from './App';
+// Tache de fond des actions de notification (« Répondre », « Marquer comme
+// lu ») : definie avant tout composant, Android peut lancer le JS sans
+// interface rien que pour elle.
+import './src/services/notificationTask';
 
 // registerRootComponent calls AppRegistry.registerComponent('main', () => App);
 // It also ensures that whether you load the app in Expo Go or in a native build,

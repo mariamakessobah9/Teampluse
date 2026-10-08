@@ -11,7 +11,10 @@ import { useFonts } from 'expo-font';
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from 'nativewind';
 import RootNavigator from './src/navigation/RootNavigator';
-import { navigationRef } from './src/navigation/navigationRef';
+import {
+  flushPendingNavigation,
+  navigationRef,
+} from './src/navigation/navigationRef';
 
 function ThemedStatusBar() {
   // Les ecrans passent du clair au sombre : une barre figee en `light`
@@ -33,7 +36,11 @@ export default function App() {
       {/* Fournit les insets aux en-tetes : sans ce provider, useSafeAreaInsets
           renvoie zero partout et les titres passent sous l'encoche. */}
       <SafeAreaProvider>
-        <NavigationContainer ref={navigationRef}>
+        <NavigationContainer
+          ref={navigationRef}
+          onReady={flushPendingNavigation}
+          onStateChange={flushPendingNavigation}
+        >
           <ThemedStatusBar />
           <RootNavigator />
         </NavigationContainer>

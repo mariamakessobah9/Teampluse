@@ -5,6 +5,7 @@ import {
   registerForPushNotifications,
   registerPushTokenWithBackend,
 } from '../services/notifications';
+import { handleNotificationAction } from '../services/notificationTask';
 import {
   navigateToCalls,
   navigateToRoom,
@@ -25,6 +26,13 @@ const handleNotificationData = (data: unknown) => {
   if (payload.roomId) {
     navigateToRoom(payload.roomId);
   }
+};
+
+const handleResponse = async (
+  response: Notifications.NotificationResponse,
+) => {
+  if (await handleNotificationAction(response)) return;
+  handleNotificationData(response.notification.request.content.data);
 };
 
 export function usePushNotifications() {
@@ -51,17 +59,23 @@ export function usePushNotifications() {
   useEffect(() => {
     const subscription =
       Notifications.addNotificationResponseReceivedListener((response) => {
-        handleNotificationData(
-          response.notification.request.content.data,
-        );
+        void handleResponse(response);
       });
 
+    // Demarrage depuis une notification. Seul l'appui simple compte : une
+    // action (« Répondre ») a deja ete traitee par la tache de fond, la
+    // rejouer enverrait le message une seconde fois. Effacee ensuite pour
+    // ne pas rouvrir la conversation au prochain lancement.
     Notifications.getLastNotificationResponseAsync().then((response) => {
-      if (response) {
-        handleNotificationData(
-          response.notification.request.content.data,
-        );
+      if (
+        response &&
+        response.actionIdentifier === Notifications.DEFAULT_ACTION_IDENTIFIER
+      ) {
+        handleNotificationData(response.notification.request.content.data);
       }
+      Notifications.clearLastNotificationResponseAsync().catch(
+        () => undefined,
+      );
     });
 
     return () => subscription.remove();

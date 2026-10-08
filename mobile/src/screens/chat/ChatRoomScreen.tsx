@@ -13,6 +13,7 @@ import {
   Linking,
   Pressable,
   PanResponder,
+  AppState,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
@@ -37,6 +38,8 @@ import { useSocket } from '../../hooks/useSocket';
 import { useKeyboardVisible } from '../../hooks/useKeyboardVisible';
 import { uploadToCloudinary } from '../../services/upload';
 import { callManager, isCallSupported } from '../../services/callManager';
+import { dismissRoomNotifications } from '../../services/notifications';
+import { getSocket } from '../../services/socket';
 import MessageTicks from '../../components/MessageTicks';
 import { Message, RootStackParamList } from '../../types';
 
@@ -420,8 +423,34 @@ export default function ChatRoomScreen() {
     joinRoom(roomId);
     fetchMessages(roomId);
     markAsRead(roomId);
+    void dismissRoomNotifications(roomId);
+
+    // Telephone verrouille ou application en arriere-plan, conversation
+    // toujours ouverte : on n'est plus « dans » le salon. Le serveur envoie
+    // alors les notifications et les coches ne passent plus au bleu, comme
+    // WhatsApp. Au retour, on y entre a nouveau (et on lit).
+    const appStateSub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        setActiveRoom(roomId);
+        joinRoom(roomId);
+        void dismissRoomNotifications(roomId);
+      } else if (state === 'background') {
+        stopTyping(roomId);
+        setActiveRoom(null);
+        leaveRoom(roomId);
+      }
+    });
+
+    // Une reconnexion du socket fait perdre les salons rejoints.
+    const socket = getSocket();
+    const onReconnect = () => {
+      if (AppState.currentState === 'active') joinRoom(roomId);
+    };
+    socket?.on('connect', onReconnect);
 
     return () => {
+      appStateSub.remove();
+      socket?.off('connect', onReconnect);
       stopTyping(roomId);
       setActiveRoom(null);
       leaveRoom(roomId);

@@ -7,6 +7,10 @@ export interface PushPayload {
   body: string;
   data?: Record<string, unknown>;
   badge?: number;
+  /** Actions proposees sous la notification (cf. categories cote mobile). */
+  categoryId?: string;
+  /** Canal Android ; `default` (Messages) sinon. */
+  channelId?: string;
 }
 
 @Injectable()
@@ -38,6 +42,8 @@ export class NotificationsService {
       data: payload.data ?? {},
       badge: payload.badge,
       priority: 'high',
+      ...(payload.categoryId ? { categoryId: payload.categoryId } : {}),
+      ...(payload.channelId ? { channelId: payload.channelId } : {}),
     }));
 
     const chunks = this.expo.chunkPushNotifications(messages);

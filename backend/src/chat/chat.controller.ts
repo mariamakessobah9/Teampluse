@@ -10,6 +10,8 @@ import {
   UseGuards,
   Inject,
   ForbiddenException,
+  NotFoundException,
+  BadRequestException,
   forwardRef,
 } from '@nestjs/common';
 import { ChatService } from './chat.service';
@@ -126,6 +128,39 @@ export class ChatController {
     @Query('limit') limit = 50,
   ) {
     return this.chatService.getRoomMessages(roomId, +page, +limit, userId);
+  }
+
+  /**
+   * Reponse texte depuis une notification : l'application peut etre en
+   * arriere-plan, socket coupe, d'ou un passage par HTTP.
+   */
+  @Post('rooms/:id/messages')
+  async postMessage(
+    @Param('id') roomId: string,
+    @CurrentUser('id') userId: string,
+    @Body('content') content: string,
+  ) {
+    const text = typeof content === 'string' ? content.trim() : '';
+    if (!text) throw new BadRequestException('Message vide.');
+    const message = await this.chatGateway.postMessage(userId, {
+      roomId,
+      content: text,
+      type: 'text',
+    });
+    if (!message) throw new NotFoundException('Conversation introuvable.');
+    return message;
+  }
+
+  /** « Marquer comme lu » depuis une notification. */
+  @Post('rooms/:id/read')
+  async markRoomRead(
+    @Param('id') roomId: string,
+    @CurrentUser('id') userId: string,
+  ) {
+    if (!(await this.chatGateway.readRoom(roomId, userId))) {
+      throw new NotFoundException('Conversation introuvable.');
+    }
+    return { ok: true };
   }
 
   @Delete('messages/:id/me')

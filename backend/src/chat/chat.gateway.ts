@@ -596,9 +596,28 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) {
     const userId = client.data.userId as string | undefined;
     if (!userId) return;
+    await this.postMessage(userId, data);
+  }
+
+  /**
+   * Envoi d'un message, par le socket ou par l'action « Répondre » d'une
+   * notification (application en arriere-plan, socket coupe).
+   */
+  async postMessage(
+    userId: string,
+    data: {
+      roomId: string;
+      content: string;
+      type?: string;
+      fileUrl?: string;
+      fileName?: string;
+      fileSize?: number;
+      duration?: number;
+    },
+  ): Promise<Message | null> {
     // Seul un membre ecrit dans un salon, et un compte retire n'en a plus.
     const room = await this.memberRoom(data?.roomId, userId);
-    if (!room) return;
+    if (!room) return null;
 
     const message = await this.chatService.sendMessage(
       data.roomId,
@@ -651,9 +670,13 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
             ? `${senderName}: ${messagePreview(message)}`
             : messagePreview(message),
           data: { type: 'message', roomId: data.roomId },
+          // Actions « Répondre » et « Marquer comme lu », comme WhatsApp.
+          categoryId: 'message',
+          channelId: 'default',
         })
         .catch(() => undefined);
     }
+    return message;
   }
 
   /**
@@ -691,12 +714,18 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) {
     const userId = client.data.userId as string | undefined;
     if (!userId) return;
-    const room = await this.memberRoom(data?.roomId, userId);
-    if (!room) return;
+    await this.readRoom(data?.roomId, userId);
+  }
+
+  /** Lecture d'un salon, par le socket ou depuis une notification. */
+  async readRoom(roomId: string | undefined, userId: string): Promise<boolean> {
+    const room = await this.memberRoom(roomId, userId);
+    if (!room) return false;
 
     if (await this.chatService.markMessagesAsRead(room.id, userId)) {
       this.emitToMembers(room, 'messages-read', { roomId: room.id, userId });
     }
+    return true;
   }
 
   // ---- Appels : evenements client ----
